@@ -1,4 +1,6 @@
 from lstore.index import Index
+from lstore.page_range import PageRange
+from lstore.page import Page
 from time import time
 
 INDIRECTION_COLUMN = 0
@@ -6,6 +8,7 @@ RID_COLUMN = 1
 TIMESTAMP_COLUMN = 2
 SCHEMA_ENCODING_COLUMN = 3
 
+PAGE_RANGE_SIZE = 32
 
 class Record:
 
@@ -25,10 +28,10 @@ class Table:
         self.name = name
         self.key = key
         self.num_columns = num_columns
-        self.page_directory = {}
+        self.total_columns = num_columns + 4
+        self.page_directory = {} # RID -> (page_range, page_index, slot)
         self.index = Index(self)
-        pass
-
+        
     def __merge(self):
         print("merge is happening")
         pass
