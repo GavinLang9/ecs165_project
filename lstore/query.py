@@ -30,12 +30,8 @@ class Query:
     # Returns False if insert fails for whatever reason
     """
     def insert(self, *columns):
-        try:
-            key = columns[self.table.key]
-            record = self.table.create_record(key, list(columns))
-            return True
-        except:
-            return False
+        schema_encoding = '0' * self.table.num_columns
+        pass
 
     
     """
@@ -48,22 +44,7 @@ class Query:
     # Assume that select will never be called on a key that doesn't exist
     """
     def select(self, search_key, search_key_index, projected_columns_index):
-        try:
-            # Find record with matching key
-            for rid in self.table.page_directory:
-                record = self.table.get_record(rid)
-                if record and record.columns[search_key_index] == search_key:
-                    # Project columns
-                    projected_record = []
-                    for i, include in enumerate(projected_columns_index):
-                        if include:
-                            projected_record.append(record.columns[i])
-                        else:
-                            projected_record.append(None)
-                    return [Record(record.rid, search_key, projected_record)]
-            return False
-        except:
-            return False
+        pass
 
     
     """
@@ -77,27 +58,7 @@ class Query:
     # Assume that select will never be called on a key that doesn't exist
     """
     def select_version(self, search_key, search_key_index, projected_columns_index, relative_version):
-        try:
-            # Find record with matching key
-            for rid in self.table.page_directory:
-                record = self.table.get_record(rid)
-                if record and record.columns[search_key_index] == search_key:
-                    # Get specific version
-                    version_record = self.table.get_record_version(rid, relative_version)
-                    if not version_record:
-                        return False
-                        
-                    # Project columns
-                    projected_record = []
-                    for i, include in enumerate(projected_columns_index):
-                        if include:
-                            projected_record.append(version_record.columns[i])
-                        else:
-                            projected_record.append(None)
-                    return [Record(version_record.rid, search_key, projected_record)]
-            return False
-        except:
-            return False
+        pass
 
     
     """
@@ -106,10 +67,7 @@ class Query:
     # Returns False if no records exist with given key or if the target record cannot be accessed due to 2PL locking
     """
     def update(self, primary_key, *columns):
-        try:
-            return self.table.update_record(primary_key, columns)
-        except:
-            return False
+        pass
 
     
     """
@@ -134,16 +92,7 @@ class Query:
     # Returns False if no record exists in the given range
     """
     def sum_version(self, start_range, end_range, aggregate_column_index, relative_version):
-        try:
-            total = 0
-            for key in sorted(self.table.records.keys()):
-                if start_range <= key <= end_range:
-                    record = self.select_version(key, self.table.key, [1] * self.table.num_columns, relative_version)
-                    if record:
-                        total += record[0].columns[aggregate_column_index]
-            return total
-        except:
-            return False
+        pass
 
     
     """
