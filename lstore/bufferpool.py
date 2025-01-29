@@ -6,12 +6,13 @@ class BufferPool:
     """
     The BufferPool manages loading and evicting pages from memory using LRU policy
     """
-    def __init__(self, capacity: int):
+    def __init__(self, capacity: int, disk: Disk):
         self.capacity = capacity  # Number of pages that can be held in memory
         self.pool = OrderedDict()  # Maps (page_range_id, column_id, page_id) -> Page
         self.dirty_pages = set()   # Tracks which pages have been modified
         self.pin_count = {}
-        self.disk = Disk()
+        self.disk = disk
+
 
     def get_page(self, page_range_id: int, page_id: int):
         """
