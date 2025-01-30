@@ -29,7 +29,7 @@ class Table:
         self.key = key
         self.num_columns = num_columns
         self.page_directory = {}    # RID -> (page_range_id, page_id) ?
-        self.bufferpool = BufferPool(BUFFER_POOL_CAPACITY)
+        self.bufferpool = BufferPool(BUFFER_POOL_CAPACITY)  # TODO : implement BufferPool class
         self.index = Index(self)
         self.rid_counter = 0
         self.current_page_range = 0
@@ -52,7 +52,7 @@ class Table:
             
 
     def _get_write_locations(self) -> ([int], [int]):
-         """
+        """
         Determines the page range and page index for each column to be written.
         
         Returns:
@@ -60,7 +60,7 @@ class Table:
                 - List of page_range_ids for each column
                 - List of page_ids for each column
         """
-        # Default all columns will be written to self.current_page_range 
+        # Default all columns will be written to self.current_page_range
         total_columns = self.num_columns + 4
         page_range_ids = [self.current_page_range] * total_columns
         column_page_ids = [self.current_page] * total_columns
@@ -88,7 +88,7 @@ class Table:
         
 
     def create_record(self, key, columns):
-         """
+        """
         Creates a new record by writing columns to their corresponding pages.
         
         Args:
