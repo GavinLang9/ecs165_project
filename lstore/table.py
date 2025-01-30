@@ -97,21 +97,21 @@ class Table:
             
         """
         # create meta data columns
-        if len(columns != self.num_columns):
+        if len(columns) != self.num_columns:
             raise ValueError("Invalid number of columns")
         rid = self.rid_counter
         metadata = [
-            rid,                            # INDIRECTION
+            rid,                            # INDIRECTION (most recent RID)
             rid,                            # RID
             int(time() * 1000),             # TIMESTAMP
             '0' * self.num_columns          # SCHEMA ENCODING
         ]
-        record_data =  metadata + columns
+        record_data = metadata + columns
 
         # returns a tuple of lists that hold page range and page indexes for each column
         page_range_ids, column_page_ids = self._get_write_locations()
 
-        # write each column to their correspoding location in disk
+        # write each column to their corresponding location in disk
         for value, page_range_id, page_id in zip(record_data, page_range_ids, column_page_ids):
             page = self.bufferpool.get_page(page_range_id, page_id)
             if not page.has_capacity():
