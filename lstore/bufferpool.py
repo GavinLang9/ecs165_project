@@ -8,10 +8,12 @@ class BufferPool:
     """
     def __init__(self, capacity: int, disk: Disk):
         self.capacity = capacity  # Number of pages that can be held in memory
-        self.pool = OrderedDict()  # Maps (page_range_id, column_id, page_id) -> Page
+        self.pool = OrderedDict()  # Maps (page_range_id, page_id) -> Page
         self.dirty_pages = set()   # Tracks which pages have been modified
         self.pin_count = {}
         self.disk = disk
+        
+    
 
 
     def get_page(self, page_range_id: int, page_id: int):
@@ -36,7 +38,7 @@ class BufferPool:
             page = self.disk.read(page_range_id, page_id)
             
             # If buffer pool is at capacity, evict least recently used page
-            if len(self.pool) >= self.capacity:
+            if self._is_full():
                 self.evict_page()
                 
             # Add new page to pool
@@ -46,6 +48,16 @@ class BufferPool:
             
         except IndexError:
             return None
+
+    def write_page(self, page_range_id: int, page_id: int, page: Page):
+        key = (page_range_id, page_id)
+
+        if key not in self.pool and self._is_full():
+            self.evict_page()
+
+        self.pool[key] = page
+        self.mark_dirty(page_range_id, page_id)
+
 
     def evict_page(self):
         """
@@ -102,3 +114,5 @@ class BufferPool:
             self.disk.write(self.pool[key])
             self.dirty_pages.remove(key)
 
+    def _is_full(self):
+        return len(self.pool) >= self.capacity

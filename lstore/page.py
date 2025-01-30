@@ -13,6 +13,8 @@ class Page:
         return False
 
     def write(self, value):
+        if not self.has_capacity():
+            raise IndexError('Page is full')
         bytes = value.to_bytes(8)
         index = self.num_records * 8
         self.data[index: index + 8] = bytes
