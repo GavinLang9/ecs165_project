@@ -9,31 +9,51 @@ class Query:
     Queries that succeed should return the result or True
     Any query that crashes (due to exceptions) should return False
     """
+
     def __init__(self, table):
         self.table = table
         pass
 
-    
     """
-    # internal Method
+    # Internal Method
     # Read a record with specified RID
-    # Returns True upon succesful deletion
+    # Returns True upon successful deletion
     # Return False if record doesn't exist or is locked due to 2PL
     """
+
     def delete(self, primary_key):
         pass
-    
-    
+
     """
     # Insert a record with specified columns
-    # Return True upon succesful insertion
+    # Return True upon successful insertion
     # Returns False if insert fails for whatever reason
     """
-    def insert(self, *columns):
-        schema_encoding = '0' * self.table.num_columns
-        pass
 
-    
+    def insert(self, *columns):
+        # Fail if mismatching number of columns
+        if len(columns) != self.table.num_columns:
+            return False
+
+        primary_key = columns[self.table.key_idx]
+
+        # Fail if primary key already exists
+        if self.table.index.locate(self.table.key_idx, primary_key) is not None:
+            return False
+
+        # schema_encoding is part of the metadata columns.
+        # metadata columns should include
+        # indirection (base record points to latest tail record)
+        # schema encoding
+        # start time  (datetime?)
+        # last update (initialize as None)
+        # schema_encoding = '0' * self.table.num_columns
+
+        self.table.create_record(primary_key, columns)
+
+        # may need to implement checks, maybe in above function?
+        return True
+
     """
     # Read matching record with specified search key
     # :param search_key: the value you want to search based on
@@ -43,10 +63,15 @@ class Query:
     # Returns False if record locked by TPL
     # Assume that select will never be called on a key that doesn't exist
     """
+
     def select(self, search_key, search_key_index, projected_columns_index):
+        # get all RIDs of records that match search criteria
+        rid_list = self.table.index.locate(search_key_index, search_key)
+
+        # get all Record objects from rid_list
+
         pass
 
-    
     """
     # Read matching record with specified search key
     # :param search_key: the value you want to search based on
@@ -57,19 +82,19 @@ class Query:
     # Returns False if record locked by TPL
     # Assume that select will never be called on a key that doesn't exist
     """
+
     def select_version(self, search_key, search_key_index, projected_columns_index, relative_version):
         pass
 
-    
     """
     # Update a record with specified key and columns
     # Returns True if update is succesful
     # Returns False if no records exist with given key or if the target record cannot be accessed due to 2PL locking
     """
+
     def update(self, primary_key, *columns):
         pass
 
-    
     """
     :param start_range: int         # Start of the key range to aggregate 
     :param end_range: int           # End of the key range to aggregate 
@@ -78,10 +103,10 @@ class Query:
     # Returns the summation of the given range upon success
     # Returns False if no record exists in the given range
     """
+
     def sum(self, start_range, end_range, aggregate_column_index):
         pass
 
-    
     """
     :param start_range: int         # Start of the key range to aggregate 
     :param end_range: int           # End of the key range to aggregate 
@@ -91,10 +116,10 @@ class Query:
     # Returns the summation of the given range upon success
     # Returns False if no record exists in the given range
     """
+
     def sum_version(self, start_range, end_range, aggregate_column_index, relative_version):
         pass
 
-    
     """
     incremenets one column of the record
     this implementation should work if your select and update queries already work
@@ -103,6 +128,7 @@ class Query:
     # Returns True is increment is successful
     # Returns False if no record matches key or if target record is locked by 2PL.
     """
+
     def increment(self, key, column):
         r = self.select(key, self.table.key, [1] * self.table.num_columns)[0]
         if r is not False:
