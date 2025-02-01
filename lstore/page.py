@@ -11,4 +11,3 @@ class Page:
     def write(self, value):
         self.num_records += 1
         pass
-
