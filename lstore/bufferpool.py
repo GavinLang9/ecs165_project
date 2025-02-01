@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from lstore.disk import Disk
+from lstore.page import Page
 import os
 
 class BufferPool:
@@ -13,10 +14,7 @@ class BufferPool:
         self.pin_count = {}
         self.disk = disk
         
-    
-
-
-    def get_page(self, page_range_id: int, page_id: int):
+    def get_page(self, page_range_id: int, page_id: int) -> Page:
         """
         Retrieves a page from the buffer pool. If not in memory, loads it from disk.
         Returns None if page doesn't exist.
@@ -57,7 +55,6 @@ class BufferPool:
 
         self.pool[key] = page
         self.mark_dirty(page_range_id, page_id)
-
 
     def evict_page(self):
         """
