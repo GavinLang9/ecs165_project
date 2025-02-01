@@ -1,4 +1,6 @@
+from typing import Tuple
 from lstore.index import Index
+from lstore.bufferpool import BufferPool
 from time import time
 
 INDIRECTION_COLUMN = 0
@@ -29,7 +31,7 @@ class Table:
         self.key = key
         self.num_columns = num_columns
         self.page_directory = {}    # RID -> (page_range_id, page_id) ?
-        self.bufferpool = BufferPool(BUFFER_POOL_CAPACITY)  # TODO : implement BufferPool class
+        self.bufferpool = BufferPool(BUFFER_POOL_CAPACITY)
         self.index = Index(self)
         self.rid_counter = 0
         self.current_page_range = 0
@@ -37,7 +39,55 @@ class Table:
 
         pass
 
-    
+    def create_record(self, key, columns):
+        """
+        Creates a new record by writing columns to their corresponding pages.
+        
+        Args:
+            key (int): Primary key value
+            columns (list[int]): List of column values to write
+            
+        """
+        # create meta data columns
+        if len(columns != self.num_columns):
+            raise ValueError("Invalid number of columns")
+        rid = self.rid_counter
+        metadata = [
+            rid,                            # INDIRECTION
+            rid,                            # RID
+            int(time() * 1000),             # TIMESTAMP
+            '0' * self.num_columns,          # SCHEMA ENCODING
+            key
+        ]
+        record_data =  metadata + columns
+
+        # returns a tuple of lists that hold page range and page indexes for each column
+        page_range_ids, column_page_ids = self._get_write_locations()
+        offsets = []
+        # write each column to their corresponding location in disk
+        for value, page_range_id, page_id in zip(record_data, page_range_ids, column_page_ids):
+            page = self.bufferpool.get_page(page_range_id, page_id)
+            if not page.has_capacity():
+                raise IndexError("This page has no space")
+            index = page.write(value)
+            offsets.append(index)
+            self.bufferpool.write_page(page_range_id, page_id, page)
+        
+        # TODO: Maybe call bufferpool.flush to commit
+        # Update table metadata
+        # TODO: Fix page directory to include offset in page and update this everywhere else
+        self.page_directory[rid] = (page_range_ids, column_page_ids, offsets)
+        self._update_indexes(rid)
+        
+    def get_record(self, rid: int, projected_columns_index: list[int]):
+        page_range_ids, page_ids, offsets = self.page_directory[rid]
+        columns = []
+        for page_range_id, page_id, offset in zip(page_range_ids, page_ids, offsets):
+            page = self.bufferpool.get_page(page_range_id, page_id)
+            value = page[offset]
+            columns.append(value)
+        # TODO: Continue working on get_record 
+
     def _new_pages_will_overflow_page_range(self, total_columns):
         """
         Checks if writing new pages would exceed the current page range capacity.
@@ -48,8 +98,7 @@ class Table:
         Returns:
             bool: True if writing would overflow the current page range
         """
-        return self.current_page + total_columns > PAGE_RANGE_MAX_LEN
-            
+        return self.current_page + total_columns > PAGE_RANGE_MAX_LEN         
 
     def _get_write_locations(self) -> ([int], [int]):
         """
@@ -85,45 +134,6 @@ class Table:
         
         return (page_range_ids, column_page_ids)
 
-        
-
-    def create_record(self, key, columns):
-        """
-        Creates a new record by writing columns to their corresponding pages.
-        
-        Args:
-            key (int): Primary key value
-            columns (list[int]): List of column values to write
-            
-        """
-        # create meta data columns
-        if len(columns) != self.num_columns:
-            raise ValueError("Invalid number of columns")
-        rid = self.rid_counter
-        metadata = [
-            rid,                            # INDIRECTION (most recent RID)
-            rid,                            # RID
-            int(time() * 1000),             # TIMESTAMP
-            '0' * self.num_columns          # SCHEMA ENCODING
-        ]
-        record_data = metadata + columns
-
-        # returns a tuple of lists that hold page range and page indexes for each column
-        page_range_ids, column_page_ids = self._get_write_locations()
-
-        # write each column to their corresponding location in disk
-        for value, page_range_id, page_id in zip(record_data, page_range_ids, column_page_ids):
-            page = self.bufferpool.get_page(page_range_id, page_id)
-            if not page.has_capacity():
-                raise IndexError("This page has no space")
-            page.write(value)
-            
-            self.bufferpool.write(page_range_id, page_id, page)
-        
-        # Update table metadata
-        self.page_directory[rid] = (self.current_page_range, self.current_page)
-        self._update_indexes(rid)
-        
 
     def _update_indexes(self, rid: int):
         """
