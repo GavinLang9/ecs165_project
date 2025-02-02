@@ -1,4 +1,4 @@
-from page import Page
+from lstore.page import Page
 from typing import List
 
 PAGE_RANGE_MAX_LEN = 64
