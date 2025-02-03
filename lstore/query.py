@@ -35,21 +35,22 @@ class Query:
         if len(columns) != self.table.num_columns:
             return False
 
-        primary_key = columns[self.table.key_idx]
+        primary_key = columns[ self.table.key ]
 
         # Fail if primary key already exists
-        if self.table.index.locate(self.table.key_idx, primary_key) is not None:
+        if self.table.index.locate(self.table.key, primary_key) is not None:
             return False
 
         # schema_encoding is part of the metadata columns.
         # metadata columns should include
-        # indirection (base record points to latest tail record)
-        # schema encoding
-        # start time  (datetime?)
-        # last update (initialize as None)
-        # schema_encoding = '0' * self.table.num_columns
+            # indirection (base record points to latest tail record)
+            # schema encoding
+            # start time  (datetime?)
+            # last update (initialize as None)
+            # schema_encoding = '0' * self.table.num_columns
 
-        self.table.create_record(primary_key, columns)
+        # does create_record need the primary key?
+        self.table.create_record( columns )
 
         # may need to implement checks, maybe in above function?
         return True
@@ -65,12 +66,28 @@ class Query:
     """
 
     def select(self, search_key, search_key_index, projected_columns_index):
+        # TODO : Fail if search_key_index is out of bounds
+
+        # Fail if projected_columns_index does not match number of columns
+        if len( projected_columns_index ) != self.table.num_columns:
+            return False
+
         # get all RIDs of records that match search criteria
         rid_list = self.table.index.locate(search_key_index, search_key)
 
         # get all Record objects from rid_list
+        record_list = []
 
-        pass
+        for rid in rid_list:
+            record_list.append( self.table.get_record( rid ) )
+
+        # apply projected_columns_index
+        final_records = []
+        for record in record_list:
+            tmp_columns = tuple( column for column, include in zip( record.columns, projected_columns_index ) if include == 1 )
+            final_records.append( Record( record.rid, record.key, tmp_columns ) )
+
+        return final_records
 
     """
     # Read matching record with specified search key
@@ -84,7 +101,8 @@ class Query:
     """
 
     def select_version(self, search_key, search_key_index, projected_columns_index, relative_version):
-        pass
+        # No versions in Milestone 1
+        return self.select( search_key, search_key_index, projected_columns_index )
 
     """
     # Update a record with specified key and columns
@@ -93,7 +111,17 @@ class Query:
     """
 
     def update(self, primary_key, *columns):
-        pass
+        # Fail if mismatching number of columns
+        if len( columns )!= self.table.num_columns:
+            return False
+
+        rid = self.table.index.locate( self.table.key, primary_key )
+        # Fail if record does not exist
+        if rid == None:
+            return False
+
+        # TODO : update record
+
 
     """
     :param start_range: int         # Start of the key range to aggregate 
@@ -105,7 +133,27 @@ class Query:
     """
 
     def sum(self, start_range, end_range, aggregate_column_index):
-        pass
+        # Fail if start_range does not exist
+        if self.table.index.locate( self.table.key, start_range ) == None:
+            return False
+
+        # TODO : Fail if aggregate_column_index is out of bounds
+
+        # get all RIDs of records that match search criteria
+        rid_list = self.table.index.locate_range( start_range, end_range, self.table.key )
+
+        # get all Record objects from rid_list
+        record_list = []
+        for rid in rid_list:
+            record_list.append(self.table.get_record(rid))
+
+        # get summation from each record's aggregate_column_index
+        summation = 0
+        for record in record_list:
+            summation += record.columns[ aggregate_column_index ]
+
+        return summation
+
 
     """
     :param start_range: int         # Start of the key range to aggregate 
@@ -118,10 +166,11 @@ class Query:
     """
 
     def sum_version(self, start_range, end_range, aggregate_column_index, relative_version):
-        pass
+        # No versions in Milestone 1
+        return self.sum( start_range, end_range, aggregate_column_index )
 
     """
-    incremenets one column of the record
+    increments one column of the record
     this implementation should work if your select and update queries already work
     :param key: the primary of key of the record to increment
     :param column: the column to increment
