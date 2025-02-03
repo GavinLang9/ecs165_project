@@ -5,7 +5,11 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="eafb08f4-0c5a-44ea-9244-ef08816bb99e" name="Changes" comment="">
+<<<<<<< HEAD
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+=======
+      <change beforePath="$PROJECT_DIR$/lstore/disk.py" beforeDir="false" afterPath="$PROJECT_DIR$/lstore/disk.py" afterDir="false" />
+>>>>>>> dd81a490cf027c289e3e88346d95400b4c80cbf2
       <change beforePath="$PROJECT_DIR$/lstore/page.py" beforeDir="false" afterPath="$PROJECT_DIR$/lstore/page.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/lstore/table.py" beforeDir="false" afterPath="$PROJECT_DIR$/lstore/table.py" afterDir="false" />
     </list>
@@ -49,7 +53,11 @@
     "Python.main.py.executor": "Debug",
     "RunOnceActivity.OpenProjectViewOnStart": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
+<<<<<<< HEAD
     "git-widget-placeholder": "Merging query__index__develop",
+=======
+    "git-widget-placeholder": "Merging table__develop",
+>>>>>>> dd81a490cf027c289e3e88346d95400b4c80cbf2
     "last_opened_file_path": "C:/Users/conno/PycharmProjects/ecs165_project",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",

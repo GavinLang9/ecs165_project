@@ -64,7 +64,7 @@ class Table:
             int(time() * 1000),             # TIMESTAMP
             0,                              # SCHEMA ENCODING
         ]
-        record_data =  metadata + columns
+        record_data = metadata + list( columns )
 
         # returns a tuple of lists that hold page range and page indexes for each column
         page_range_ids, column_page_ids = self._get_write_locations()
