@@ -11,13 +11,14 @@ class Index:
         self.indices = [None] * table.num_columns
 
         # Index primary key column
-        self.create_index( table.key_idx )
+        self.create_index( table.key )
 
     """
     # returns the location of all records with the given value on column "column"
     """
 
     def locate(self, column, value):
+        # if column has not been created
         if self.indices[column] is None:
             return None
 
@@ -29,7 +30,21 @@ class Index:
     """
 
     def locate_range(self, begin, end, column):
-        pass
+        # if column has not been created
+        if self.indices[column] is None:
+            return None
+
+        sorted_keys = sorted( self.indices[ column ].keys() )
+
+        result_rids = []
+
+        # find values in range
+        for key in sorted_keys:
+            if begin <= key <= end:
+                # result_rids.append( self.indices[ column ].get( key ) )
+                result_rids.extend( self.indices[column][key] )
+
+        return result_rids
 
     """
     # optional: Create index on specific column
