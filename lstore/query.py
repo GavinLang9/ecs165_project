@@ -77,7 +77,6 @@ class Query:
 
         # get all Record objects from rid_list
         record_list = []
-
         for rid in rid_list:
             record_list.append( self.table.get_record( rid ) )
 
@@ -94,19 +93,23 @@ class Query:
     # :param search_key: the value you want to search based on
     # :param search_key_index: the column index you want to search based on
     # :param projected_columns_index: what columns to return. array of 1 or 0 values.
-    # :param relative_version: the relative version of the record you need to retreive.
+    # :param relative_version: the relative version of the record you need to retrieve.
     # Returns a list of Record objects upon success
     # Returns False if record locked by TPL
     # Assume that select will never be called on a key that doesn't exist
+    
+    relative_version: Assuming 0 is most recent tail record and relative_version decrements to iterate through
+        previous tail records (versions)
     """
 
     def select_version(self, search_key, search_key_index, projected_columns_index, relative_version):
-        # No versions in Milestone 1
+        # TODO : this entire function
+
         return self.select( search_key, search_key_index, projected_columns_index )
 
     """
     # Update a record with specified key and columns
-    # Returns True if update is succesful
+    # Returns True if update is successful
     # Returns False if no records exist with given key or if the target record cannot be accessed due to 2PL locking
     """
 
@@ -159,14 +162,18 @@ class Query:
     :param start_range: int         # Start of the key range to aggregate 
     :param end_range: int           # End of the key range to aggregate 
     :param aggregate_columns: int  # Index of desired column to aggregate
-    :param relative_version: the relative version of the record you need to retreive.
+    :param relative_version: the relative version of the record you need to retrieve.
     # this function is only called on the primary key.
     # Returns the summation of the given range upon success
     # Returns False if no record exists in the given range
+    
+    relative_version: Assuming 0 is most recent tail record and relative_version decrements to iterate through
+        previous tail records (versions)
     """
 
     def sum_version(self, start_range, end_range, aggregate_column_index, relative_version):
-        # No versions in Milestone 1
+        # TODO : this entire function
+
         return self.sum( start_range, end_range, aggregate_column_index )
 
     """
