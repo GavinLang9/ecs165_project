@@ -5,7 +5,6 @@ from lstore.disk import Disk
 from lstore.page import Page
 from time import time
 
-
 INDIRECTION_COLUMN = 0
 RID_COLUMN = 1
 TIMESTAMP_COLUMN = 2
@@ -71,24 +70,25 @@ class Table:
 
         offsets = []
         # write each column to their corresponding location in disk
+
         for value, page_range_id, page_id in zip(record_data, page_range_ids, column_page_ids):
+            page = None
             page = self.bufferpool.get_page(page_range_id, page_id)
+
             if not page:
                 page = Page()
+                
             if not page.has_capacity():
-                print(page_range_ids, column_page_ids)
                 raise IndexError("This page has no space")
-            index = page.write(value)
 
+            index = page.write(value)
             offsets.append(index)
             self.bufferpool.write_page(page_range_id, page_id, page)
-
-        # TODO: Maybe call bufferpool.flush to commit
         # Update table metadata
-        # TODO: Fix page directory to include offset in page and update this everywhere else
         self.page_directory[rid] = (page_range_ids, column_page_ids, offsets)
         self._update_indexes()
         
+        # TODO: Write get_latest_record.  This function gets base record. 
     def get_record(self, rid: int) -> Record:
         """
         returns constructed record by getting each column value from their respective pages
@@ -99,8 +99,6 @@ class Table:
             page = self.bufferpool.get_page(page_range_id, page_id)
             value = page[offset]
             columns.append(value)
-            
-        # TODO: Continue working on get_record 
         record = Record(rid, columns[self.key + NUM_META_COLUMNS], columns[5:]) # 4 columns of metadata followed by key
         return record
 
@@ -116,7 +114,7 @@ class Table:
         """
         return self.current_page + total_columns > PAGE_RANGE_MAX_LEN         
 
-    def _get_write_locations(self) -> ([int], [int]):
+    def _get_write_locations(self) -> Tuple[list[int], list[int]]:
         """
         Determines the page range and page index for each column to be written.
         
@@ -147,7 +145,6 @@ class Table:
             list(range(self.current_page, PAGE_RANGE_MAX_LEN)) + 
             list(range(overflow_columns))
         )
-        
         return (page_range_ids, column_page_ids)
 
     def _update_indexes(self):

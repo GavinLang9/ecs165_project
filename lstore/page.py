@@ -7,6 +7,13 @@ class Page:
         self.record_size = record_size
         self.data = bytearray(PAGE_SIZE)
 
+    # print page function
+    def __str__(self):
+        s = ''
+        for i in range(self.num_records):
+            s += str(self.__getitem__(i))
+        return s
+
     def __getitem__(self, index: int) -> int:
         if index < 0 or index >= PAGE_SIZE / self.record_size:
             raise IndexError("index out of range")
