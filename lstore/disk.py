@@ -1,5 +1,6 @@
 from lstore.page import Page
 from typing import List
+import pdb
 
 PAGE_RANGE_MAX_LEN = 64
 
@@ -64,13 +65,17 @@ class Disk:
         
         return self.page_ranges[page_range_index][page_index]
 
-    def write(self, page: Page):
+    def write(self, page_range_id: int, page_id: int, page: Page):
         """
         Writes a page to the disk
         If the last page range is full, create a new page range
         Appends the page to the last page range
         """
-        if self.page_ranges[len(self.page_ranges) - 1].index == PAGE_RANGE_MAX_LEN:
+        if len(self.page_ranges) == 0:
             self.page_ranges.append(PageRange([page]))
-
-        self.page_ranges[len(self.page_ranges) - 1].pages.append(page)
+        elif page_range_id > len(self.page_ranges) - 1:
+            self.page_ranges.append(PageRange([page]))
+        elif page_id > len(self.page_ranges[page_range_id]) - 1:
+            self.page_ranges[page_range_id].pages.append(page)
+        else:
+            self.page_ranges[page_range_id].pages[page_id] = page
