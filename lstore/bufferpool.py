@@ -14,6 +14,18 @@ class BufferPool:
         self.pin_count = {}
         self.disk = disk
         
+    def __str__(self):
+        s = ''
+        for page_range_id, page_id in self.pool:
+            key = (page_range_id, page_id)
+
+            s += (f'page range {page_range_id}, page {page_id}: \n')
+            for i in range(512):
+                s += str(self.pool[key][i])
+                s += ' '
+            s += '\n'
+        return s
+
     def get_page(self, page_range_id: int, page_id: int) -> Page:
         """
         Retrieves a page from the buffer pool. If not in memory, loads it from disk.
@@ -29,6 +41,8 @@ class BufferPool:
         if key in self.pool:
             # Move to end to show it was recently used
             self.pool.move_to_end(key)
+            self.pin_count[key] -= 1
+
             return self.pool[key]
         
         try:
@@ -37,24 +51,29 @@ class BufferPool:
             
             # If buffer pool is at capacity, evict least recently used page
             if self._is_full():
+                # print('trying to evict page in reading')
                 self.evict_page()
                 
             # Add new page to pool
             self.pool[key] = page
             self.pool.move_to_end(key)
+            self.pin_count[key] -= 1
             return page
             
         except IndexError:
+            self.pin_count[key] -= 1
             return None
 
     def write_page(self, page_range_id: int, page_id: int, page: Page):
         key = (page_range_id, page_id)
 
         if key not in self.pool and self._is_full():
+            # print('trying to evict page in writing')
             self.evict_page()
 
         self.pool[key] = page
         self.mark_dirty(page_range_id, page_id)
+        self.force_page(page_range_id, page_id)
 
     def evict_page(self):
         """
@@ -108,7 +127,7 @@ class BufferPool:
         """
         key = (page_range_id, page_id)
         if key in self.pool and key in self.dirty_pages:
-            self.disk.write(self.pool[key])
+            self.disk.write(page_range_id, page_id, self.pool[key])
             self.dirty_pages.remove(key)
 
     def _is_full(self):
