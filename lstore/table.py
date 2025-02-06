@@ -3,6 +3,7 @@ from lstore.index import Index
 from lstore.bufferpool import BufferPool
 from lstore.disk import Disk
 from lstore.page import Page
+ 
 from time import time
 
 INDIRECTION_COLUMN = 0
@@ -36,7 +37,7 @@ class Table:
         self.page_directory = {}    # RID -> ([page_range_ids], [page_ids], [offsets])
         self.disk = Disk()
         self.bufferpool = BufferPool(BUFFER_POOL_CAPACITY, self.disk)
-        self.index = Index(self)
+        
         self.rid_counter = 0
 
         # base page data
@@ -76,7 +77,6 @@ class Table:
 
         offsets = []
         # write each column to their corresponding location in disk
-
         for value, page_range_id, page_id in zip(record_data, page_range_ids, column_page_ids):
             page = self.bufferpool.get_page(page_range_id, page_id)
 
@@ -93,35 +93,29 @@ class Table:
         self.page_directory[rid] = (page_range_ids, column_page_ids, offsets)
         self._update_base_indexes()
 
-    def update_record(self, primary_key, columns):
+    def update_record(self, base_rid, columns):
         """
         Updates a record by writing columns to their corresponding tail pages
         and updating the base record indirection and schema encoding.
 
         Args:
-            primary_key (int): Primary key value
+            rid (int): rid of record to be updated
             columns (tuple): List of column values to write
                 first column is key column (usually)
                 [key, col 1, col 2, col 3, ...]
         """
-
-        # Fails if record with PK does not already exist
-        base_rid = self.index.locate( self.key, primary_key )
-        if base_rid == None:
-            return False
-
         latest_record = self.get_latest_record( base_rid )
 
         # create meta data columns
         if len(columns) != self.num_columns:
             raise ValueError("Invalid number of columns")
 
-        rid = self.rid_counter
+        tail_rid = self.rid_counter
         schema_encoding = self._get_schema_encoding( columns )
 
         metadata = [
             latest_record.rid,                          # INDIRECTION (previous tail record's RID)
-            rid,                                        # RID
+            tail_rid,                                        # RID
             int(time() * 1000),                         # TIMESTAMP
             schema_encoding                             # SCHEMA ENCODING
         ]
@@ -146,11 +140,11 @@ class Table:
             offsets.append(index)
             self.bufferpool.write_page(page_range_id, page_id, page)
         # Update table metadata
-        self.page_directory[rid] = (page_range_ids, column_page_ids, offsets)
+        self.page_directory[tail_rid] = (page_range_ids, column_page_ids, offsets)
         self._update_tail_indexes()
 
         # TODO : update base record metadata
-        self._update_base_record_metadata( base_rid, rid, schema_encoding )
+        self._update_base_record_metadata( base_rid, tail_rid, schema_encoding )
 
 
     def get_latest_record(self, base_rid: int) -> Record:
@@ -216,12 +210,16 @@ class Table:
 
         return columns
 
-    def _update_base_record_metadata(self, base_rid, new_rid, schema_encoding):
+    def _update_base_record_metadata(self, base_rid, tail_rid, schema_encoding):
         base_record = self.get_record( base_rid )
 
-        base_record.columns[0] = new_rid
+        base_record.columns[0] = tail_rid
         base_record.columns[3] = schema_encoding
 
+        self._write_record_column(base_rid, 0, tail_rid)
+        
+        schema_encoding_bytes = self._convert_schema_encoding_to_bytes(schema_encoding)
+        self._write_record_column(base_rid, 3, schema_encoding_bytes)
         # TODO : write new metadata back to original base record page
 
 
@@ -354,6 +352,20 @@ class Table:
         self.rid_counter += 1
         self.current_tail_offset += 1
 
+    def _write_record_column(self, rid, column_index, value):
+        page_range_ids, page_ids, offsets = self.page_directory[rid]
+        page_range_id = page_range_ids[column_index]
+        page_id = page_ids[column_index]
+        offset = offsets[column_index]
+        page = self.bufferpool.get_page(page_range_id, page_id)
+
+        page.update(offset, value)
+
+        self.bufferpool.write_page(page_range_id, page_id, page)
+    
+    def _convert_schema_encoding_to_bytes(self, schema_encoding: list[int]) -> bytearray:
+        bit_string = ''.join(map(str, schema_encoding))
+        return int(bit_string, 2).to_bytes(8)
     # Checks if page range is full based on page_id counter
     def _page_range_is_full(self, current_page, total_columns):
         return current_page > PAGE_RANGE_MAX_LEN - total_columns

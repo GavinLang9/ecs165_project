@@ -12,6 +12,7 @@ class Query:
 
     def __init__(self, table):
         self.table = table
+        self.index = Index(table)
         pass
 
     """
@@ -38,7 +39,7 @@ class Query:
         primary_key = columns[ self.table.key ]
 
         # Fail if primary key already exists
-        if self.table.index.locate(self.table.key, primary_key) is not None:
+        if self.index.locate(self.table.key, primary_key) is not None:
             return False
 
         # schema_encoding is part of the metadata columns.
@@ -124,7 +125,7 @@ class Query:
             return False
 
         # TODO : update record
-        self.table.update_record( primary_key, columns )
+        self.table.update_record( rid, columns )
 
         return True
 
