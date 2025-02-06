@@ -115,15 +115,18 @@ class Query:
 
     def update(self, primary_key, *columns):
         # Fail if mismatching number of columns
-        if len( columns )!= self.table.num_columns:
+        if len( columns ) != self.table.num_columns:
             return False
 
-        rid = self.table.index.locate( self.table.key, primary_key )
         # Fail if record does not exist
+        rid = self.table.index.locate( self.table.key, primary_key )
         if rid == None:
             return False
 
         # TODO : update record
+        self.table.update_record( primary_key, columns )
+
+        return True
 
 
     """
