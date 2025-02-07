@@ -50,6 +50,17 @@ class Disk:
         self.page_ranges: List[PageRange] = []
         pass
 
+    def __str__(self):
+        s = ''
+        for i, page_range in enumerate(self.page_ranges):
+            s += f'page range {i}\n'
+            for j, page in enumerate(page_range):
+                s += f'page {j}\n\n'
+                s += f'\t{str(page)}\n\n'
+            
+        return s
+            
+
     def read(self, page_range_index: int, page_index: int):
         """
         Read a page from the disk
