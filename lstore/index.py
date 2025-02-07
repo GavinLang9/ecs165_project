@@ -1,4 +1,4 @@
-from lstore.btree import BTree
+from lstore.btree import Btree
 
 """
 A data structure holding indices for various columns of a table. Key column should be indexed by default, other columns
@@ -57,7 +57,7 @@ class Index:
         if self.indices[column_number] is not None:
             return
 
-        self.indices[column_number] = BTree()
+        self.indices[column_number] = Btree()
 
     """
     # optional: Drop index of specific column

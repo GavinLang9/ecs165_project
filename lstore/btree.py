@@ -70,7 +70,7 @@ Data Structure B-Tree
 # param: t: int - Minimum degree of the B-Tree (minimum number of keys in a node)
 # param: root: Node - Root node of the B-Tree
 """
-class BTree:
+class Btree:
     def __init__(self, t: int):
         self.root = Node(is_leaf=True, t=t)
         self.t = t
@@ -160,7 +160,7 @@ class BTree:
 
 # Example Usage:
 if __name__ == "__main__":
-    b_tree = BTree(3)  # B-Tree of minimum degree 3
+    b_tree = Btree(3)  # B-Tree of minimum degree 3
     
     keys = [(10, 1), (20, 1), (5, 6), (6, 2), (12, 100), (30, 1), (7, 3), (17, 4)]
     for val in keys:
