@@ -107,13 +107,11 @@ class Table:
         and updating the base record indirection and schema encoding.
 
         Args:
-            rid (int): rid of record to be updated
+            base_rid (int): rid of record to be updated
             columns (tuple): List of column values to write
                 first column is key column (usually)
-                [key, col 1, col 2, col 3, ...]
+                [key, col 1, None, col 3, ...]
         """
-        # latest_record = self.get_latest_record( base_rid )
-
         # create meta data columns
         if len(columns) != self.num_columns:
             raise ValueError("Invalid number of columns")
@@ -124,10 +122,11 @@ class Table:
 
         metadata = [
             tail_rid,                          # INDIRECTION (previous tail record's RID)
-            tail_rid,                                        # RID
-            int(time() * 1000),                         # TIMESTAMP
-            schema_encoding_bytes                             # SCHEMA ENCODING
+            tail_rid,                          # RID
+            int(time() * 1000),                # TIMESTAMP
+            schema_encoding_bytes              # SCHEMA ENCODING
         ]
+
         record_data = metadata + list( columns )
 
         # returns a tuple of lists that hold page range and page indexes for each column
@@ -138,25 +137,24 @@ class Table:
         for i,(value, page_range_id, page_id) in enumerate(zip(record_data, page_range_ids, column_page_ids)):
             if value == None:
                 continue
-            # pdb.set_trace()
             page = self.bufferpool.get_page(page_range_id, page_id)
+
             if not page:
                 page = Page()
 
             if not page.has_capacity():
-                pdb.set_trace()
                 raise IndexError("This page has no space")
 
             index = page.write(value)
             offsets[i] = index
             self.bufferpool.write_page(page_range_id, page_id, page)
+
+            # update tail counters
             self.current_tail_page_range[i] = page_range_id
             self.current_tail_page[i] = page_id
         # Update table metadata
         self.page_directory[tail_rid] = (page_range_ids, column_page_ids, offsets)
         self._update_tail_indexes(offsets)
-
-        # TODO : update base record metadata
         self._update_base_record_metadata( base_rid, tail_rid, schema_encoding )
 
     def get_latest_record(self, base_rid: int) -> Record:
@@ -168,25 +166,19 @@ class Table:
         Note: base record indirection is latest tail record RID,
               tail record indirection is previous tail record RID
         """
-        record = self.get_record( base_rid )
+        base_record = self.get_record( base_rid )
 
         # return record if indirection is RID
         # AKA return record if it is the base record (has no updates)
-        if record.indirection == record.rid:
-            return record
+        if base_record.indirection == base_record.rid:
+            return base_record
 
-        latest_tail_record = self.get_record( record.indirection )
-        # Avoids fully populating the values from the base record into all tail pages
-        # if latest_tail_record.columns[0] == record.rid:
-        #     return latest_tail_record
-
+        latest_tail_record = self.get_record( base_record.indirection )
+       
         # Using cumulative tail records
-        for i, column in enumerate(latest_tail_record.columns):
-            if column is None:
-                latest_tail_record.columns[i] = record.columns[i]
-        if latest_tail_record.key is None:
-            latest_tail_record.key = record.key
-        
+        # Fill in all None values with base record values
+        latest_tail_record = self._get_cumulative_tail_record_columns(latest_tail_record, base_record)
+
         return latest_tail_record
 
     def _get_schema_encoding(self, columns):
@@ -205,35 +197,30 @@ class Table:
 
         return new_schema_encoding
 
-    def _get_cumulative_tail_record_columns(self, latest_record: Record, columns: tuple):
+    def _get_cumulative_tail_record_columns(self, latest_tail_record: Record, base_record: Record):
         """
         Returns the cumulative tail based off of previous tail record and new columns values
 
-        :param latest_record: Record object, most recent tail record
+        :param latest_tail_record: Record object, most recent tail record
         :param columns: tuple of values
         """
-        # keep columns as-is if latest_record is tail record
-        if latest_record.rid == latest_record.columns[0]:
-            return columns
-
-        # update new columns to be cumulative of previous tail record column values
-        for col_idx in range( self.num_columns ):
-            if latest_record.columns[ 4 + col_idx ] != columns[ col_idx ]:
-                columns[ col_idx ] = latest_record.columns[ 4 + col_idx ]
-
-        return columns
+        for i, column in enumerate(latest_tail_record.columns):
+            if column is None:
+                latest_tail_record.columns[i] = base_record.columns[i]
+        if latest_tail_record.key is None:
+            latest_tail_record.key = base_record.key
+        
+        return latest_tail_record
+        
 
     def _update_base_record_metadata(self, base_rid: int, tail_rid: int, schema_encoding):
-        # base_record = self.get_record( base_rid )
+        """
+        updates indirection and schema encoding columns for a base page
 
-        # base_record.columns[0] = tail_rid
-        # base_record.columns[3] = schema_encoding
-
+        """
         self._write_record_column(base_rid, 0, tail_rid)
-        
         schema_encoding_bytes = self._convert_schema_encoding_to_bytes(schema_encoding)
         self._write_record_column(base_rid, 3, schema_encoding_bytes)
-        # TODO : write new metadata back to original base record page
 
     def get_record(self, rid: int) -> Record:
         """
@@ -305,15 +292,18 @@ class Table:
                 - List of page_range_ids for each column
                 - List of page_ids for each column
         """
-        # Default all columns will be written to self.current_tail_page_range
-        # columns = ([None] * NUM_META_COLUMNS) + columns
+        
         total_columns = self.num_columns + NUM_META_COLUMNS
-        # num_updated_columns = sum(1 for x in columns if x is not None)
+
         page_range_ids = [None] * total_columns
         column_page_ids = [None] * total_columns
 
         # Initialize updated columns so we don't allocate tail pages we don't need
         offset = 0
+
+        # Goes through updated column and either gets the location of a page that is not full
+        # or allocates a new page for that column
+        # Sorry for how ugly this is, it was a bit hard to implement
         for i in range(len(columns)):
             next_free_page = self.current_tail_page[i]
             next_free_page_range = self.current_tail_page_range[i]
@@ -326,7 +316,7 @@ class Table:
                     self.current_tail_page_range[i:] = [next_free_page_range] * (len(columns) - i)
                 page_range_ids[i] = next_free_page_range
                 column_page_ids[i] = next_free_page
-                # TODO: CONTINUE FIXING GETTING NEW PAGE AND PAGE RANGES WRITE LOCATIONS FOR TAIL PAGES
+
         return (page_range_ids, column_page_ids)
 
     def _update_base_indexes(self):
@@ -345,22 +335,6 @@ class Table:
             new_page_id = (self.current_base_page + total_columns) % PAGE_RANGE_MAX_LEN
             self.current_base_page = new_page_id
             self.current_base_offset = 0
-            
-        latest_tail_page_range = self.current_base_page_range
-        latest_tail_page = self.current_base_page + total_columns
-        offset = 0
-        # Makes sure first updates 
-        # for i in range(total_columns):
-        #     if self.current_tail_offset[i] == 0:
-        #         tail_page_id = self.current_tail_page[i]
-        #         if tail_page_id == 0:
-        #             self.current_tail_page[i] = (latest_tail_page + offset) % PAGE_RANGE_MAX_LEN
-        #             latest_tail_page += 1
-        #             if (latest_tail_page + offset) // PAGE_RANGE_MAX_LEN:
-        #                 current_tail_page_range += 1
-        #                 self.current_tail_page_range[i] = current_tail_page_range
-            
-
         self.rid_counter += 1
         self.current_base_offset += 1
 
@@ -373,7 +347,7 @@ class Table:
             rid
         """
         total_columns = self.num_columns + NUM_META_COLUMNS
-        # TODO: CONTINUE WITH UPDATING OFFSET / PAGE COUNTERS FOR TAIL PAGES
+
         for i, offset in enumerate(offsets):
             if offset != None:
                 if offset >= RECORDS_PER_PAGE - 1:
@@ -384,16 +358,10 @@ class Table:
                 self.current_tail_offset[i] += 1
         self.rid_counter += 1
 
-        # if self._page_is_full( self.current_tail_offset ) and self.current_tail_offset != 0:
-        #     if self._page_range_is_full( self.current_tail_page, total_columns ):
-        #         self.current_tail_page_range += 1
-        #     new_page_id = (self.current_tail_page + total_columns) % PAGE_RANGE_MAX_LEN
-        #     self.current_tail_page = new_page_id
-        #     self.current_tail_offset = 0
-        # self.rid_counter += 1
-        # self.current_tail_offset += 1
-
     def _next_free_page(self):
+        """
+        returns next empty page index
+        """
         total_columns = NUM_META_COLUMNS + self.num_columns
         next_page_id = max(self.current_base_page + total_columns, max(self.current_tail_page) + 1)
         if next_page_id >= PAGE_RANGE_MAX_LEN:
@@ -401,10 +369,21 @@ class Table:
         return next_page_id
 
     def _next_free_page_range(self):
+        """
+        returns next empty page range index
+        """
         next_page_range = max(self.current_base_page_range + 1, max(self.current_tail_page_range) + 1)
         return next_page_range
     
     def _write_record_column(self, rid, column_index, value):
+        """
+        updates single page for a column (for indirection and schema encoding)
+        
+        Args:
+            rid: rid of record to be updated
+            column_index: index of column to be updated
+            value: (rid or schema encoding) to be writen to page
+        """
         page_range_ids, page_ids, offsets = self.page_directory[rid]
         page_range_id = page_range_ids[column_index]
         page_id = page_ids[column_index]
@@ -418,6 +397,7 @@ class Table:
     def _convert_schema_encoding_to_bytes(self, schema_encoding: list[int]) -> bytearray:
         bit_string = ''.join(map(str, schema_encoding))
         return int(bit_string, 2).to_bytes(8)
+    
     # Checks if page range is full based on page_id counter
     def _page_range_is_full(self, current_page, total_columns):
         return current_page > PAGE_RANGE_MAX_LEN - total_columns
