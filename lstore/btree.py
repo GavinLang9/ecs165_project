@@ -14,7 +14,7 @@ class Node:
         self.keys: List[Tuple] = []
         self.children: List[Node]  = []
 
-    def search(self, key: int) -> Tuple:
+    def get(self, key: int) -> Tuple:
         """
         Search for a key in the B-Tree
         # Traverse the tree from root to leaf
@@ -36,22 +36,23 @@ class Node:
             return None
         
         # Key not found in node but node is not a leaf so search the child node
-        return self.children[i].search(key)
+        return self.children[i].get(key)
     
-    def get_all_pairs(self):
+    def get_range(self, pairs: List[int], start: int, end: int):
         """
-        Return the key value pairs of the node and its children
+        Sets the pairs list to be the in-order traversal of the B-Tree if the key is in the range [start, end]
         """
-
-        if self.is_leaf:
-            return self.keys
-
-        pairs = self.keys
-        for child in self.children:
-            pairs.extend(child.get_all_pairs())
+        for i in range(len(self.keys)):
+            if not self.is_leaf:
+                self.children[i].get_range(pairs, start, end)
+            
+            if start <= self.keys[i][0] <= end:
+                pairs.append(self.keys[i][1])
         
-        return pairs
-    
+        # Visit the last child
+        if not self.is_leaf:
+            self.children[len(self.keys)].get_range(pairs, start, end)
+            
     def debug_display(self, level=0):
         """
         Traverse the B-Tree
@@ -85,24 +86,26 @@ class Btree:
         else:
             raise ValueError("B-Tree is empty")
 
-    def search(self, key: int) -> int:
+    def get(self, key: int) -> int:
         """
         Search for a key in the B-Tree and returns the corresponding value
         """
         if not self.root:
             return None
         
-        return self.root.search(key)
+        return self.root.get(key)
     
-    def get_all_pairs(self):
+    def get_range(self, start: int, end: int) -> List[int]:
         """
-        Get all key-value pairs in the B-Tree
+        Get all records in key order in the B-Tree
         """
 
         if not self.root:
             return []
         
-        return self.root.get_all_pairs()
+        res = []
+        self.root.get_range(res, start, end)
+        return res
 
     def insert(self, key_value: Tuple):
         """
@@ -167,8 +170,8 @@ if __name__ == "__main__":
         b_tree.insert(val)
     print("Traversal of B-tree:")
     b_tree.debug_display()
-    print("\nSearch result for key 6:", "Found" if b_tree.search(6) else "Not Found")
+    print("\Get result for key 6:", "Found" if b_tree.get(6) else "Not Found")
 
     print("\nAll key-value pairs in B-Tree:")
-    print(b_tree.get_all_pairs())
+    print(b_tree.get_range(5, 17))
 
