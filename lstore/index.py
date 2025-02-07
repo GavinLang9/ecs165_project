@@ -36,17 +36,7 @@ class Index:
         if self.indices[column] is None:
             return None
 
-        key_val_pairs = self.indices[ column ].get_all_pairs()
-
-        result_rids = []
-
-        # find values in range
-        for pair in key_val_pairs:
-            if begin <= pair[0] <= end:
-                # result_rids.append( self.indices[ column ].get( key ) )
-                result_rids.append( pair[1] )
-
-        return result_rids
+        return self.indices[ column ].get_range(begin, end)
 
     """
     # optional: Create index on specific column
