@@ -24,7 +24,7 @@ class Index:
         if self.indices[column] is None:
             return None
 
-        result = self.indices[column].search( value )
+        result = self.indices[column].get( value )
         return result
 
     """
