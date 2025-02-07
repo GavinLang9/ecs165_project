@@ -20,6 +20,8 @@ class Node:
         # Traverse the tree from root to leaf
         # If the key is found, return the value
         # If the key is not found, return None
+        # time complexity: O(log(n))
+        # space complexity: O(1)
         """
 
         # Find the first key greater than or equal to the key
@@ -41,17 +43,23 @@ class Node:
     def get_range(self, pairs: List[int], start: int, end: int):
         """
         Sets the pairs list to be the in-order traversal of the B-Tree if the key is in the range [start, end]
+        time complexity: O(log(n) + k)
+        space complexity: O(k)
         """
-        for i in range(len(self.keys)):
-            if not self.is_leaf:
-                self.children[i].get_range(pairs, start, end)
-            
-            if start <= self.keys[i][0] <= end:
-                pairs.append(self.keys[i][1])
-        
-        # Visit the last child
-        if not self.is_leaf:
-            self.children[len(self.keys)].get_range(pairs, start, end)
+
+        # Find the first key greater than or equal to the key
+        i = 0
+        while i < len(self.keys) and self.keys[i][0] < start:
+            i += 1
+
+        # Visit the first child if the node is not a leaf
+        if not self.is_leaf and i < len(self.children):
+            self.children[i].get_range(pairs, start, end)
+
+        # Traverse the keys in the node
+        while i < len(self.keys) and self.keys[i][0] <= end:
+            pairs.append(self.keys[i][1])
+            i += 1
             
     def debug_display(self, level=0):
         """
@@ -170,8 +178,8 @@ if __name__ == "__main__":
         b_tree.insert(val)
     print("Traversal of B-tree:")
     b_tree.debug_display()
-    print("\Get result for key 6:", "Found" if b_tree.get(6) else "Not Found")
+    print("Get result for key 6:", "Found" if b_tree.get(6) else "Not Found")
 
-    print("\nAll key-value pairs in B-Tree:")
+    print("All key-value pairs in B-Tree:")
     print(b_tree.get_range(5, 17))
 
