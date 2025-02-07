@@ -5,6 +5,7 @@ A data structure holding indices for various columns of a table. Key column shou
 can be indexed through this object. Indices are usually B-Trees, but other data structures can be used as well.
 """
 
+B_TREE_ORDER = 3
 
 class Index:
 
@@ -47,7 +48,7 @@ class Index:
         if self.indices[column_number] is not None:
             return
 
-        self.indices[column_number] = Btree()
+        self.indices[column_number] = Btree(t=3)
 
     """
     # optional: Drop index of specific column
