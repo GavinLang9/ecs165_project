@@ -26,7 +26,7 @@ class Page:
     def has_capacity(self) -> bool:
         return self.num_records * self.record_size < PAGE_SIZE
             
-
+    # appends a value to a page
     def write(self, value) -> int:
         if not self.has_capacity():
             raise IndexError('Page is full')
@@ -37,6 +37,7 @@ class Page:
         self.num_records += 1
         return (self.num_records - 1)
 
+    # updates a value at a certain index in the page
     def update(self, index, value):
         if type(value) != bytes:
             value = value.to_bytes(self.record_size)

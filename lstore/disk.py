@@ -57,7 +57,6 @@ class Disk:
             for j, page in enumerate(page_range):
                 s += f'page {j}\n\n'
                 s += f'\t{str(page)}\n\n'
-            
         return s
             
 
