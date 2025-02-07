@@ -12,6 +12,7 @@ class Page:
         s = ''
         for i in range(self.num_records):
             s += str(self.__getitem__(i))
+            s += ' '
         return s
 
     def __getitem__(self, index: int) -> int:
@@ -30,16 +31,17 @@ class Page:
         if not self.has_capacity():
             raise IndexError('Page is full')
         if type(value) != bytes:
-            value = value.to_bytes(8)        
-        index = self.num_records * 8
-        self.data[index: index + 8] = value
+            value = value.to_bytes(self.record_size)        
+        index = self.num_records * self.record_size
+        self.data[index: index + self.record_size] = value
         self.num_records += 1
         return (self.num_records - 1)
 
     def update(self, index, value):
         if type(value) != bytes:
-            value = value.to_bytes(8)
-        self.data[index: index + 8] = value
+            value = value.to_bytes(self.record_size)
+        index = index * self.record_size
+        self.data[index: index + self.record_size] = value
         return True
 
 
