@@ -134,6 +134,11 @@ class Btree:
         """
         Inset a key-value pair into a non-full node
         """
+        for i, (existing_key, existing_value) in enumerate(node.keys):
+            if existing_key == key_value[0]:
+                # Key found, update the value
+                node.keys[i] = key_value
+                return
 
         if node.is_leaf:
             node.keys.append(key_value)
@@ -182,4 +187,7 @@ if __name__ == "__main__":
 
     print("All key-value pairs in B-Tree:")
     print(b_tree.get_range(5, 17))
+
+    b_tree.insert((10, 9999))
+    b_tree.debug_display()
 
