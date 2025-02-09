@@ -40,3 +40,4 @@ for i in range(0,num, 1000):
 
 # up = list(0 for x in tu if x is not None else None)
 # print(up)
+#dd
