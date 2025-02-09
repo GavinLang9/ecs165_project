@@ -1,0 +1,193 @@
+from typing import List, Tuple
+
+"""
+# Data Structure: Node
+#  param: is_leaf: bool - True if node is a leaf node, False otherwise
+#  param: t: int - Minimum degree of the B-Tree (minimum number of keys in a node)
+#  keys: list - List of keys in the node - Tuple of (key, value)
+#  children: list - List of children nodes (number of children is equal to number of keys + 1)
+"""
+class Node:
+    def __init__(self, is_leaf: bool, t: int):
+        self.is_leaf: bool = is_leaf
+        self.t: int = t
+        self.keys: List[Tuple] = []
+        self.children: List[Node]  = []
+
+    def get(self, key: int) -> Tuple:
+        """
+        Search for a key in the B-Tree
+        # Traverse the tree from root to leaf
+        # If the key is found, return the value
+        # If the key is not found, return None
+        # time complexity: O(log(n))
+        # space complexity: O(1)
+        """
+
+        # Find the first key greater than or equal to the key
+        i = 0
+        while i < len(self.keys) and key > self.keys[i][0]:
+            i += 1
+        
+        # Found the key in the node then return the value
+        if i < len(self.keys) and key == self.keys[i][0]:
+            return self.keys[i][1]
+        
+        # Key not found in the tree
+        if self.is_leaf:
+            return None
+        
+        # Key not found in node but node is not a leaf so search the child node
+        return self.children[i].get(key)
+    
+    def get_range(self, pairs: List[int], start: int, end: int):
+        """
+        Sets the pairs list to be the in-order traversal of the B-Tree if the key is in the range [start, end]
+        time complexity: O(log(n) + k)
+        space complexity: O(k)
+        """
+
+        # Find the first key greater than or equal to the key
+        i = 0
+        while i < len(self.keys) and self.keys[i][0] < start:
+            i += 1
+
+        # Visit the first child if the node is not a leaf
+        if not self.is_leaf and i < len(self.children):
+            self.children[i].get_range(pairs, start, end)
+
+        # Traverse the keys in the node
+        while i < len(self.keys) and self.keys[i][0] <= end:
+            pairs.append(self.keys[i][1])
+            i += 1
+            
+    def debug_display(self, level=0):
+        """
+        Traverse the B-Tree
+        # Recursively traverse the left most child
+        # Recursively traverse the right most child
+        # Display the keys of the node
+        """
+
+        print(f"L{level}: {self.keys}")
+        if not self.is_leaf:
+            for child in self.children:
+                child.debug_display(level + 1)
+    
+"""
+Data Structure B-Tree
+# param: t: int - Minimum degree of the B-Tree (minimum number of keys in a node)
+# param: root: Node - Root node of the B-Tree
+"""
+class Btree:
+    def __init__(self, t: int):
+        self.root = Node(is_leaf=True, t=t)
+        self.t = t
+
+    def debug_display(self):
+        """
+        Display the B-Tree if it is not empty
+        """
+
+        if self.root:
+            self.root.debug_display()
+        else:
+            raise ValueError("B-Tree is empty")
+
+    def get(self, key: int) -> int:
+        """
+        Search for a key in the B-Tree and returns the corresponding value
+        """
+        if not self.root:
+            return None
+        
+        return self.root.get(key)
+    
+    def get_range(self, start: int, end: int) -> List[int]:
+        """
+        Get all records in key order in the B-Tree
+        """
+
+        if not self.root:
+            return []
+        
+        res = []
+        self.root.get_range(res, start, end)
+        return res
+
+    def insert(self, key_value: Tuple):
+        """
+        If the root is full, split the root and create a new root
+        Then insert the key-value pair into the non-full root
+        param: key_value: Tuple - Key-value pair to be inserted
+        """
+
+        root = self.root
+        if len(root.keys) == (2 * self.t) - 1:
+            new_root = Node(t=self.t, is_leaf=False)
+            new_root.children.append(self.root)
+            self.split_child(new_root, 0)
+            self.root = new_root
+        self.insert_non_full(self.root, key_value)
+
+    def insert_non_full(self, node: Node, key_value: Tuple):
+        """
+        Inset a key-value pair into a non-full node
+        """
+        for i, (existing_key, existing_value) in enumerate(node.keys):
+            if existing_key == key_value[0]:
+                # Key found, update the value
+                node.keys[i] = key_value
+                return
+
+        if node.is_leaf:
+            node.keys.append(key_value)
+            node.keys.sort()
+        else:
+            i = len(node.keys) - 1
+            while i >= 0 and key_value[0] < node.keys[i][0]:
+                i -= 1
+            i += 1
+            if len(node.children[i].keys) == (2 * self.t) - 1:
+                self.split_child(node, i)
+                if key_value[0] > node.keys[i][0]:
+                    i += 1
+            self.insert_non_full(node.children[i], key_value)
+
+    def split_child(self, parent: Node, i: int):
+        """
+        Split the child node of the parent node
+        """
+
+        t = self.t
+        child = parent.children[i]
+        new_child = Node(t=t, is_leaf=child.is_leaf)
+        parent.keys.insert(i, child.keys[t - 1])
+        parent.children.insert(i + 1, new_child)
+        new_child.keys = child.keys[t:(2 * t - 1)]
+        child.keys = child.keys[:t - 1]
+        if not child.is_leaf:
+            new_child.children = child.children[t:(2 * t)]
+            child.children = child.children[:t]
+    
+    
+    
+    
+
+# Example Usage:
+if __name__ == "__main__":
+    b_tree = Btree(3)  # B-Tree of minimum degree 3
+    
+    keys = [(10, 1), (20, 1), (5, 6), (6, 2), (12, 100), (30, 1), (7, 3), (17, 4)]
+    for val in keys:
+        b_tree.insert(val)
+    print("Traversal of B-tree:")
+    b_tree.debug_display()
+    print("Get result for key 6:", "Found" if b_tree.get(6) else "Not Found")
+
+    print("All key-value pairs in B-Tree:")
+    print(b_tree.get_range(5, 17))
+
+    b_tree.insert((10, 9999))
+    b_tree.debug_display()
+
