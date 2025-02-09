@@ -7,6 +7,8 @@ table = Table('test', 3, 0)
 
 num = 10
 query = Query(table)
+
+# Test Insert
 for i in range(0,num):
   testInsert = query.insert(i+1, i+10, i+100)
 
@@ -35,27 +37,24 @@ for i in range(0,num, 1000):
   print(f'{rec.rid:<{5}} {rec.key:<{5}} {rec.columns}')
 """
 
-success1 = query.insert(11, 12, 13)
+success1 = query.insert(11, 19, 108)
 # print(success1)
-#table.create_record([10001, 2002, 3003])
 rec = table.get_latest_record(10)
 print(f'{rec.rid:<{5}} {rec.key:<{5}} {rec.columns}')
 
-#success2 = query.insert(10002, 2002, 4003)
-#table.create_record([10002, 2002, 4003])
-success2 = query.insert(12, 13, 14)
+success2 = query.insert(12, 18, 108)
 rec = table.get_latest_record(11)
 print(f'{rec.rid:<{5}} {rec.key:<{5}} {rec.columns}')
 print(f"\n")
 
 # Test Locate\
-locate_records = query.index.indices[1].get(10)
+locate_column = 1
+locate_key = 19
+locate_records = query.index.indices[locate_column].get(locate_key)
 print("USING INDEX LOCATE:")
-print(f"RID's where column 1 is 2002: {locate_records}\n")
-print(table.index.testPrint())
-'''
+print(f"RID's where column {locate_column} is {locate_key}: {locate_records}\n")
+
 # Test Select
-select_records = query.select(2002, 1, [1, 1, 1])
-print("USING SELECT:")
-print(f"RID's where column 1 is 2002: {select_records}\n")
-'''
+# select_records = query.select(locate_key, locate_column, [1, 1, 1])
+# print("USING SELECT:")
+# print(f"RID's where column {locate_column} is {locate_key}: {select_records}\n")
