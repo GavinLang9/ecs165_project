@@ -54,18 +54,18 @@ class Query:
         self.table.create_record( columns )
         rid = self.table.rid_counter - 1
 
-        # create index on primary key if needed
-        # insert primary key into B-tree along with RID
+        # insert each column into btree
         for column_idx in range(len(columns)):
             self.index.create_index(column_idx)
-            self.index.indices[column_idx].insert( (columns[column_idx], rid) )
-            #print(f'rid {rid} found: {self.index.indices[column_idx].get(columns[column_idx])}')
-            print(f'btree: {self.index.indices[column_idx]}')
+            value = columns[column_idx]
 
-        # may need to implement checks, maybe in above function?
-        if rid == 9:
-            self.index.indices[column_idx].debug_display()
+            if self.index.indices[column_idx].get(value) is None:
+                self.index.indices[column_idx].insert( (value, {rid}) )
+            else: 
+                self.index.indices[column_idx].get(value).add(rid)  # Add to existing set
+
         return True
+
 
     """
     # Read matching record with specified search key
