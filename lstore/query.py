@@ -133,14 +133,16 @@ class Query:
     """
 
     def select(self, search_key, search_key_index, projected_columns_index):
-        # TODO : Fail if search_key_index is out of bounds
+        # Fail if search_key_index is out of bounds
+        if search_key_index < 0 or search_key_index >= self.table.num_columns:
+            return False
 
         # Fail if projected_columns_index does not match number of columns
         if len( projected_columns_index ) != self.table.num_columns:
             return False
 
         # get all RIDs of records that match search criteria
-        rid_list = self.table.index.locate(search_key_index, search_key)
+        rid_list = self.index.locate(search_key_index, search_key)
 
         # get all Record objects from rid_list
         record_list = []
@@ -151,7 +153,7 @@ class Query:
         final_records = []
         for record in record_list:
             tmp_columns = tuple( column for column, include in zip( record.columns, projected_columns_index ) if include == 1 )
-            final_records.append( Record( record.rid, record.key, tmp_columns ) )
+            final_records.append( Record( record.rid, record.indirection, record.key, tmp_columns ) )
 
         return final_records
 
@@ -191,20 +193,39 @@ class Query:
 
     def update(self, primary_key, *columns):
         # Fail if mismatching number of columns
-        if len( columns ) != self.table.num_columns:
+        if len(columns) != self.table.num_columns:
+            print(len(columns))
+            print(len(self.table.num_columns))
             return False
 
+        primary_key_column_idx = self.table.key
         # Fail if record does not exist
-        rid = self.table.index.locate( self.table.key, primary_key )
-        if rid == None:
+        rids = self.index.locate( primary_key_column_idx, primary_key )
+
+        if rids == None:
             return False
+        
+        # Update record in table and index
+        sorted(rids)
+        rid = rids.pop()
+        old_record = self.table.get_record(rid)
 
-        # TODO : update record
-        # Update record and index
-        self.table.update_record(rid, columns)
-        self.table.indices[self.table.key].insert((primary_key, self.table.rid_counter))
+        self.table.update_record(rid, list(columns))
 
+        # Update B+ tree index for each column that changed
+        for col_index, new_value in enumerate(columns):
+            print(f'{col_index} {new_value}')
+            '''
+            if new_value is not None:  # Only update non-None values
+                old_value = old_record.columns[col_index]
+
+                # If value changed, update index
+                if old_value != new_value and new_value != None:
+                    #self.index.remove(col_index, old_value, rid)  # Remove old value
+                    self.index.insert(col_index, new_value, rid)  # Insert new value
+            '''
         return True
+
 
     """
     :param start_range: int         # Start of the key range to aggregate 
