@@ -109,10 +109,19 @@ class Query:
     """
 
     def select_version(self, search_key, search_key_index, projected_columns_index, relative_version):
-        # TODO : this entire function
-
-        return self.select( search_key, search_key_index, projected_columns_index )
-
+        # Get the record with version info
+        rid = self.table.index.locate(search_key_index, search_key)
+        if rid is None:
+            return False
+            
+        if relative_version == 0:
+            record = self.table.get_latest_record(rid)
+        else:
+            record = self.table.get_record(rid)
+            
+        if record is None:
+            return False
+        
     """
     # Update a record with specified key and columns
     # Returns True if update is successful

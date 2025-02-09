@@ -1,13 +1,12 @@
 
 PAGE_SIZE = 4096
-class Page:
 
+class Page:
     def __init__(self, record_size=8):
         self.num_records = 0
         self.record_size = record_size
         self.data = bytearray(PAGE_SIZE)
 
-    # print page function
     def __str__(self):
         s = ''
         for i in range(self.num_records):
@@ -20,30 +19,28 @@ class Page:
             raise IndexError("index out of range")
         index = index * self.record_size
         byte_value = self.data[index: index + self.record_size]
-        value = int.from_bytes(byte_value)
-        return(value)
-    
+        value = int.from_bytes(byte_value, byteorder='big')  # Added byteorder here
+        return value
+
     def has_capacity(self) -> bool:
         return self.num_records * self.record_size < PAGE_SIZE
-            
-    # appends a value to a page
+
     def write(self, value) -> int:
         if not self.has_capacity():
             raise IndexError('Page is full')
+        
         if type(value) != bytes:
-            value = value.to_bytes(self.record_size)        
+            value = value.to_bytes(self.record_size, byteorder='big')  # Added byteorder here
+            
         index = self.num_records * self.record_size
         self.data[index: index + self.record_size] = value
         self.num_records += 1
         return (self.num_records - 1)
 
-    # updates a value at a certain index in the page
     def update(self, index, value):
         if type(value) != bytes:
-            value = value.to_bytes(self.record_size)
+            value = value.to_bytes(self.record_size, byteorder='big')  # Added byteorder here
+            
         index = index * self.record_size
         self.data[index: index + self.record_size] = value
         return True
-
-
-
