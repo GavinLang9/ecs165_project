@@ -1,3 +1,4 @@
+
 from lstore.table import Table
 import pdb
 table = Table('test', 3, 0)

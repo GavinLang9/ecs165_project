@@ -53,6 +53,11 @@ class Query:
         # does create_record need the primary key?
         self.table.create_record( columns )
 
+        # create index on primary key if needed
+        # insert primary key into B-tree along with RID
+        self.table.index.create_index(self.table.key)
+        self.table.index.indices[self.table.key].insert( (primary_key, self.table.rid_counter) )
+
         # may need to implement checks, maybe in above function?
         return True
 
@@ -125,10 +130,11 @@ class Query:
             return False
 
         # TODO : update record
-        self.table.update_record( rid, columns )
+        # Update record and index
+        self.table.update_record(rid, columns)
+        self.table.indices[self.table.key].insert((primary_key, self.table.rid_counter))
 
         return True
-
 
     """
     :param start_range: int         # Start of the key range to aggregate 
