@@ -45,8 +45,10 @@ class Table:
         self.page_directory = {}    # RID -> ([page_range_ids], [page_ids], [offsets])
         self.disk = Disk()
         self.bufferpool = BufferPool(BUFFER_POOL_CAPACITY, self.disk)
-        
+        self.index = Index(self)    # Add this line for B-tree indexing
         self.rid_counter = 0
+        
+        # rest of your initialization code...
 
         # base page data
         self.current_base_page_range = 0
