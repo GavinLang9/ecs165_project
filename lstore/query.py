@@ -52,14 +52,75 @@ class Query:
 
         # does create_record need the primary key?
         self.table.create_record( columns )
+        rid = self.table.rid_counter - 1
 
         # create index on primary key if needed
         # insert primary key into B-tree along with RID
-        self.table.index.create_index(self.table.key)
-        self.table.index.indices[self.table.key].insert( (primary_key, self.table.rid_counter) )
+        for column_idx in range(len(columns)):
+            self.index.create_index(column_idx)
+            self.index.indices[column_idx].insert( (columns[column_idx], rid) )
+            #print(f'rid {rid} found: {self.index.indices[column_idx].get(columns[column_idx])}')
+            print(f'btree: {self.index.indices[column_idx]}')
 
         # may need to implement checks, maybe in above function?
+        if rid == 9:
+            self.index.indices[column_idx].debug_display()
         return True
+
+    """
+    # Read matching record with specified search key
+    # :param search_key: the value you want to search based on
+    # :param search_key_index: the column index you want to search based on
+    # :param projected_columns_index: what columns to return. array of 1 or 0 values.
+    # Returns a list of Record objects upon success
+    # Returns False if record locked by TPL
+    # Assume that select will never be called on a key that doesn't exist
+    """
+
+
+    '''
+    def insert(self, *columns):
+        # Fail if mismatching number of columns
+        if len(columns) != self.table.num_columns:
+            return False
+
+        primary_key = columns[ self.table.key ]
+
+        # Fail if primary key already exists
+        if self.index.locate(self.table.key, primary_key) is not None:
+            return False
+
+        # schema_encoding is part of the metadata columns.
+        # metadata columns should include
+            # indirection (base record points to latest tail record)
+            # schema encoding
+            # start time  (datetime?)
+            # last update (initialize as None)
+            # schema_encoding = '0' * self.table.num_columns
+
+        # does create_record need the primary key?
+        self.table.create_record( columns )
+
+        # create index on primary key if needed
+        # insert primary key into B-tree along with RID
+        # Get the RID of the newly inserted record
+        rid = self.table.rid_counter - 1  
+
+        # Create index for each column if not already present
+        for column_number in range(self.table.num_columns):
+            self.index.create_index(column_number)
+
+            # Insert (value, rid) into the B-Tree index
+            value = columns[column_number]
+            if self.index.indices[column_number].get(value) is None:
+                self.index.indices[column_number].insert((value, {rid}))  # Insert new set
+            else:
+                self.index.indices[column_number].get(value).add(rid)  # Add to existing set
+            # self.table.index.indices[self.table.key].insert( (primary_key, self.table.rid_counter) )
+
+            # may need to implement checks, maybe in above function?
+        return True
+    '''
 
     """
     # Read matching record with specified search key
