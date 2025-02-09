@@ -78,49 +78,6 @@ class Query:
     """
 
 
-    '''
-    def insert(self, *columns):
-        # Fail if mismatching number of columns
-        if len(columns) != self.table.num_columns:
-            return False
-
-        primary_key = columns[ self.table.key ]
-
-        # Fail if primary key already exists
-        if self.index.locate(self.table.key, primary_key) is not None:
-            return False
-
-        # schema_encoding is part of the metadata columns.
-        # metadata columns should include
-            # indirection (base record points to latest tail record)
-            # schema encoding
-            # start time  (datetime?)
-            # last update (initialize as None)
-            # schema_encoding = '0' * self.table.num_columns
-
-        # does create_record need the primary key?
-        self.table.create_record( columns )
-
-        # create index on primary key if needed
-        # insert primary key into B-tree along with RID
-        # Get the RID of the newly inserted record
-        rid = self.table.rid_counter - 1  
-
-        # Create index for each column if not already present
-        for column_number in range(self.table.num_columns):
-            self.index.create_index(column_number)
-
-            # Insert (value, rid) into the B-Tree index
-            value = columns[column_number]
-            if self.index.indices[column_number].get(value) is None:
-                self.index.indices[column_number].insert((value, {rid}))  # Insert new set
-            else:
-                self.index.indices[column_number].get(value).add(rid)  # Add to existing set
-            # self.table.index.indices[self.table.key].insert( (primary_key, self.table.rid_counter) )
-
-            # may need to implement checks, maybe in above function?
-        return True
-    '''
 
     """
     # Read matching record with specified search key
