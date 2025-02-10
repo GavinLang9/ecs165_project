@@ -1,77 +1,282 @@
-from lstore.table import Table
-from lstore.query import Query
-from lstore.query import Index
-import pdb
+from lstore.table import Table, Record
+from lstore.index import Index
 
-table = Table('test', 3, 0)
 
-num = 10
-query = Query(table)
+class Query:
+    """
+    # Creates a Query object that can perform different queries on the specified table 
+    Queries that fail must return False
+    Queries that succeed should return the result or True
+    Any query that crashes (due to exceptions) should return False
+    """
 
-# Test Insert
-for i in range(0,num):
-  testInsert = query.insert(i+1, i+10, i+100)
+    def __init__(self, table):
+        self.table = table
+        self.index = Index(table)
+        pass
 
-rid = 'rid'
-key = 'key'
-columns = 'columns'
-print(f'{rid:<{5}} {key:<{5}} columns\n')
+    """
+    # Internal Method
+    # Read a record with specified RID
+    # Returns True upon successful deletion
+    # Return False if record doesn't exist or is locked due to 2PL
+    """
 
-for i in range(0, num):
-  rec = table.get_latest_record(i)
-  print(f'{rec.rid:<{5}} {rec.key:<{5}} {rec.columns}')
+    def delete(self, primary_key):
+        pass
 
-# Test Update
-print('\n')
-for i in range(1,num+1):
-  query.update(i, None, i + 1000, i + 2000)
-  #table.update_record(i, [None, i + 2000, i + 3000])
+    """
+    # Insert a record with specified columns
+    # Return True upon successful insertion
+    # Returns False if insert fails for whatever reason
+    """
 
-print(f'{rid:<{5}} {key:<{5}} columns & indirection\n')
+    def insert(self, *columns):
+        # Fail if mismatching number of columns
+        if len(columns) != self.table.num_columns:
+            return False
 
-for i in range(0, num):
-  rec = table.get_latest_record(i)
-  print(f'{rec.rid:<{5}} {rec.key:<{5}} {rec.columns} {rec.indirection}')
+        primary_key = columns[ self.table.key ]
 
-print('\n')
-for i in range(1,num+1):
-  query.update(i, None, i + 1000, i + 2000)
-  #table.update_record(i, [None, i + 2000, i + 3000])
+        # Fail if primary key already exists
+        if self.index.locate(self.table.key, primary_key) is not None:
+            return False
 
-print(f'{rid:<{5}} {key:<{5}} columns & indirection\n')
+        # schema_encoding is part of the metadata columns.
+        # metadata columns should include
+            # indirection (base record points to latest tail record)
+            # schema encoding
+            # start time  (datetime?)
+            # last update (initialize as None)
+            # schema_encoding = '0' * self.table.num_columns
 
-for i in range(0, num):
-  rec = table.get_latest_record(i)
-  print(f'{rec.rid:<{5}} {rec.key:<{5}} {rec.columns} {rec.indirection}')
+        # does create_record need the primary key?
+        self.table.create_record( columns )
+        rid = self.table.rid_counter - 1
 
-# Insert Records Matching Values
-success1 = query.insert(21, 1010, 2010)
-rec = table.get_latest_record(30)
-print(f'{rec.rid:<{5}} {rec.key:<{5}} {rec.columns}')
-success2 = query.insert(22, 18, 108)
-rec = table.get_latest_record(31)
-print(f'{rec.rid:<{5}} {rec.key:<{5}} {rec.columns}')
-print(f"\n")
+        # insert each column into btree
+        for column_idx in range(len(columns)):
+            self.index.create_index(column_idx)
+            value = columns[column_idx]
 
-# Test Locate\
-locate_column = 1
-locate_key = 1010
-locate_records = query.index.indices[locate_column].get(locate_key)
-print("USING INDEX LOCATE:")
-print(f"BASE RID's where column {locate_column} is {locate_key}: {locate_records}\n")
+            if self.index.indices[column_idx].get(value) is None:
+                self.index.indices[column_idx].insert( (value, {rid}) )
+            else: 
+                self.index.indices[column_idx].get(value).add(rid)  # Add to existing set
 
-# Test Select
-select_records = query.select(locate_key, locate_column, [1, 1, 1])
-print("USING SELECT:")
-print(f'{rid:<{5}} {key:<{5}} columns\n')
-for rec in select_records:
-  print(f'{rec.rid:<{5}} {rec.key:<{5}} {rec.columns}')
+        return True
 
-print(f"\n")
 
-# Test Select Version
-select_ver_records = query.select_version(locate_key, locate_column, [1, 1, 1], -3)
-print("USING SELECT VERSION:")
-print(f'{rid:<{5}} {key:<{5}} columns\n')
-for rec in select_ver_records:
-  print(f'{rec.rid:<{5}} {rec.key:<{5}} {rec.columns}')
+    """
+    # Read matching record with specified search key
+    # :param search_key: the value you want to search based on
+    # :param search_key_index: the column index you want to search based on
+    # :param projected_columns_index: what columns to return. array of 1 or 0 values.
+    # Returns a list of Record objects upon success
+    # Returns False if record locked by TPL
+    # Assume that select will never be called on a key that doesn't exist
+    """
+
+    """
+    # Read matching record with specified search key
+    # :param search_key: the value you want to search based on
+    # :param search_key_index: the column index you want to search based on
+    # :param projected_columns_index: what columns to return. array of 1 or 0 values.
+    # Returns a list of Record objects upon success
+    # Returns False if record locked by TPL
+    # Assume that select will never be called on a key that doesn't exist
+    """
+
+    def select(self, search_key, search_key_index, projected_columns_index):
+        # Fail if search_key_index is out of bounds
+        if search_key_index < 0 or search_key_index >= self.table.num_columns:
+            return False
+
+        # Fail if projected_columns_index does not match number of columns
+        if len( projected_columns_index ) != self.table.num_columns:
+            return False
+
+        # get all RIDs of records that match search criteria
+        rid_list = self.index.locate(search_key_index, search_key)
+
+        # get all Record objects from rid_list
+        record_list = []
+        for rid in rid_list:
+            record_list.append( self.table.get_latest_record( rid ) )
+
+        # apply projected_columns_index
+        final_records = []
+        for record in record_list:
+            tmp_columns = tuple( column for column, include in zip( list(record.columns), projected_columns_index ) if include == 1 )
+            final_records.append( Record( record.rid, record.indirection, record.key, tmp_columns ) )
+
+        return final_records
+
+    """
+    # Read matching record with specified search key
+    # :param search_key: the value you want to search based on
+    # :param search_key_index: the column index you want to search based on
+    # :param projected_columns_index: what columns to return. array of 1 or 0 values.
+    # :param relative_version: the relative version of the record you need to retrieve.
+    # Returns a list of Record objects upon success
+    # Returns False if record locked by TPL
+    # Assume that select will never be called on a key that doesn't exist
+    
+    relative_version: Assuming 0 is most recent tail record and relative_version decrements to iterate through
+        previous tail records (versions)
+    """
+
+    def select_version(self, search_key, search_key_index, projected_columns_index, relative_version):
+        if relative_version > 0:
+            raise ValueError("Invalid relative version")
+
+        # Get the base RIDs with the search key
+        rid_list = self.index.locate(search_key_index, search_key)
+        if rid_list is None:
+            return False
+
+        # Get latest records for the base RIDs
+        latest_record_list = [self.table.get_latest_record(rid) for rid in rid_list]
+
+        if relative_version == 0:  # Fetch the latest version
+            return latest_record_list
+
+        final_records = []
+        for record in latest_record_list:
+            base_rid = record.rid
+            current_record = record  # Start from the latest record
+        
+            # Traverse backwards through previous versions
+            for step in range(abs(relative_version)):  
+                
+                if current_record.indirection is None or current_record.indirection == base_rid:  
+                    break  # Stop if no more history exists
+                
+                previous_record = self.table.get_record(current_record.indirection)
+                
+                if previous_record is None:
+                    break  # Stop if we reached a dead end
+                
+                current_record = previous_record  # Move to the older version
+
+            # Apply column projection
+            tmp_columns = tuple(column for column, include in zip(list(current_record.columns), projected_columns_index) if include == 1)
+            final_records.append(Record(current_record.rid, current_record.indirection, current_record.key, tmp_columns))
+
+        return final_records
+        
+    """
+    # Update a record with specified key and columns
+    # Returns True if update is successful
+    # Returns False if no records exist with given key or if the target record cannot be accessed due to 2PL locking
+    """
+
+    def update(self, primary_key, *columns):
+        # Fail if mismatching number of columns
+        if len(columns) != self.table.num_columns:
+            return False
+
+        primary_key_column_idx = self.table.key
+        # Fail if record does not exist
+        rids = self.index.locate(primary_key_column_idx, primary_key)
+
+        if rids is None or not rids:
+            return False
+
+        # Use the latest RID from the set
+        rid = max(rids)  # Instead of modifying the original set
+        old_record = self.table.get_latest_record(rid)  # Get latest version
+        self.table.update_record(rid, list(columns))
+
+        # Update B+ tree index for each column that changed
+        for col_index, new_value in enumerate(columns):
+            if new_value is None:
+                continue  # Skip if no update for this column
+
+            old_value = old_record.columns[col_index]
+
+            #Update Index
+            old_rid_set = self.index.indices[col_index].get(old_value)
+            if old_rid_set:
+                old_rid_set.remove(rid)
+                if not old_rid_set:  # If set is empty
+                    self.index.indices[col_index].remove(old_value)
+
+            #Insert new value
+            existing_rid_set = self.index.indices[col_index].get(new_value)
+            if existing_rid_set:
+                existing_rid_set.add(rid)
+            else:
+                self.index.indices[col_index].insert((new_value, {rid}))
+
+        return True
+
+
+
+    """
+    :param start_range: int         # Start of the key range to aggregate 
+    :param end_range: int           # End of the key range to aggregate 
+    :param aggregate_columns: int  # Index of desired column to aggregate
+    # this function is only called on the primary key.
+    # Returns the summation of the given range upon success
+    # Returns False if no record exists in the given range
+    """
+
+    def sum(self, start_range, end_range, aggregate_column_index):
+        # Fail if start_range does not exist
+        if self.table.index.locate( self.table.key, start_range ) == None:
+            return False
+
+        # TODO : Fail if aggregate_column_index is out of bounds
+
+        # get all RIDs of records that match search criteria
+        rid_list = self.table.index.locate_range( start_range, end_range, self.table.key )
+
+        # get all Record objects from rid_list
+        record_list = []
+        for rid in rid_list:
+            record_list.append(self.table.get_record(rid))
+
+        # get summation from each record's aggregate_column_index
+        summation = 0
+        for record in record_list:
+            summation += record.columns[ aggregate_column_index ]
+
+        return summation
+
+
+    """
+    :param start_range: int         # Start of the key range to aggregate 
+    :param end_range: int           # End of the key range to aggregate 
+    :param aggregate_columns: int  # Index of desired column to aggregate
+    :param relative_version: the relative version of the record you need to retrieve.
+    # this function is only called on the primary key.
+    # Returns the summation of the given range upon success
+    # Returns False if no record exists in the given range
+    
+    relative_version: Assuming 0 is most recent tail record and relative_version decrements to iterate through
+        previous tail records (versions)
+    """
+
+    def sum_version(self, start_range, end_range, aggregate_column_index, relative_version):
+        # TODO : this entire function
+
+        return self.sum( start_range, end_range, aggregate_column_index )
+
+    """
+    increments one column of the record
+    this implementation should work if your select and update queries already work
+    :param key: the primary of key of the record to increment
+    :param column: the column to increment
+    # Returns True is increment is successful
+    # Returns False if no record matches key or if target record is locked by 2PL.
+    """
+
+    def increment(self, key, column):
+        r = self.select(key, self.table.key, [1] * self.table.num_columns)[0]
+        if r is not False:
+            updated_columns = [None] * self.table.num_columns
+            updated_columns[column] = r[column] + 1
+            u = self.update(key, *updated_columns)
+            return u
+        return False
