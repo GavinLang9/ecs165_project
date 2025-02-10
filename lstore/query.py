@@ -174,8 +174,6 @@ class Query:
     def update(self, primary_key, *columns):
         # Fail if mismatching number of columns
         if len(columns) != self.table.num_columns:
-            print(len(columns))
-            print(len(self.table.num_columns))
             return False
 
         primary_key_column_idx = self.table.key
@@ -193,16 +191,12 @@ class Query:
 
         # Update B+ tree index for each column that changed
         for col_index, new_value in enumerate(columns):
-            if col_index == 0:
-                old_value = old_record.key
-            else: 
-                old_value = old_record.columns[col_index-1]
+            old_value = old_record.columns[col_index]
 
             if new_value is None:
                 new_value = old_value
 
             # Update Index
-            self.index.indices[col_index].remove(old_value)
             self.index.indices[col_index].insert( (new_value, {rid}) )
 
         return True
