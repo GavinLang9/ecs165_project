@@ -77,8 +77,6 @@ class Query:
     # Assume that select will never be called on a key that doesn't exist
     """
 
-
-
     """
     # Read matching record with specified search key
     # :param search_key: the value you want to search based on
@@ -166,21 +164,22 @@ class Query:
         sorted(rids)
         rid = rids.pop()
         old_record = self.table.get_record(rid)
-
         self.table.update_record(rid, list(columns))
 
         # Update B+ tree index for each column that changed
         for col_index, new_value in enumerate(columns):
-            print(f'{col_index} {new_value}')
-            '''
-            if new_value is not None:  # Only update non-None values
-                old_value = old_record.columns[col_index]
+            if col_index == 0:
+                old_value = old_record.key
+            else: 
+                old_value = old_record.columns[col_index-1]
 
-                # If value changed, update index
-                if old_value != new_value and new_value != None:
-                    #self.index.remove(col_index, old_value, rid)  # Remove old value
-                    self.index.insert(col_index, new_value, rid)  # Insert new value
-            '''
+            if new_value is None:
+                new_value = old_value
+
+            # Update Index
+            self.index.indices[col_index].remove(old_value)
+            self.index.indices[col_index].insert( (new_value, {rid}) )
+
         return True
 
 
