@@ -117,13 +117,13 @@ class Table:
         # create meta data columns
         if len(columns) != self.num_columns:
             raise ValueError("Invalid number of columns")
-
+        indirection_rid = self.get_record(base_rid).indirection
         tail_rid = self.rid_counter
         schema_encoding = self._get_schema_encoding( columns )
         schema_encoding_bytes = self._convert_schema_encoding_to_bytes(schema_encoding)
 
         metadata = [
-            tail_rid,                          # INDIRECTION (previous tail record's RID)
+            indirection_rid,                   # INDIRECTION (previous tail record's RID)
             tail_rid,                          # RID
             int(time() * 1000),                # TIMESTAMP
             schema_encoding_bytes              # SCHEMA ENCODING
