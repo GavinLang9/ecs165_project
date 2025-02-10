@@ -397,9 +397,12 @@ class Table:
         self.bufferpool.write_page(page_range_id, page_id, page)
     
     def _convert_schema_encoding_to_bytes(self, schema_encoding: list[int]) -> bytearray:
-        bit_string = ''.join(map(str, schema_encoding))
-        return int(bit_string, 2).to_bytes(8)
-    
+        try:
+            bit_string = ''.join(map(str, schema_encoding))
+            return int(bit_string, 2).to_bytes(8, byteorder='big')
+        except ValueError:
+            return (0).to_bytes(8, byteorder='big')
+        
     # Checks if page range is full based on page_id counter
     def _page_range_is_full(self, current_page, total_columns):
         return current_page > PAGE_RANGE_MAX_LEN - total_columns

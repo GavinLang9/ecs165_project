@@ -40,27 +40,34 @@ class Node:
         # Key not found in node but node is not a leaf so search the child node
         return self.children[i].get(key)
     
-    def get_range(self, pairs: List[int], start: int, end: int):
+    def get_range(self, start: int, end: int, result: set):
         """
         Sets the pairs list to be the in-order traversal of the B-Tree if the key is in the range [start, end]
         time complexity: O(log(n) + k)
         space complexity: O(k)
         """
-
-        # Find the first key greater than or equal to the key
         i = 0
+        # Find the first key greater than or equal to the key
         while i < len(self.keys) and self.keys[i][0] < start:
             i += 1
-
+            
         # Visit the first child if the node is not a leaf
         if not self.is_leaf and i < len(self.children):
-            self.children[i].get_range(pairs, start, end)
-
-        # Traverse the keys in the node
+            self.children[i].get_range(start, end, result)
+            
+        
         while i < len(self.keys) and self.keys[i][0] <= end:
-            pairs.append(self.keys[i][1])
+            # Add RID to result set
+            if isinstance(self.keys[i][1], set):
+                result.update(self.keys[i][1])
+            else:
+                result.add(self.keys[i][1])
             i += 1
             
+            
+            if not self.is_leaf and i < len(self.children):
+                self.children[i].get_range(start, end, result)
+
     def debug_display(self, level=0):
         """
         Traverse the B-Tree
@@ -221,18 +228,15 @@ class Btree:
         
         return self.root.get(key)
     
-    def get_range(self, start: int, end: int) -> List[int]:
-        """
-        Get all records in key order in the B-Tree
-        """
-
+    def get_range(self, start: int, end: int) -> set:
         if not self.root:
-            return []
-        
-        res = []
-        self.root.get_range(res, start, end)
-        return res
-
+            return set()
+            
+        result = set()
+        self.root.get_range(start, end, result)
+        print(f"Range query {start}-{end} found {len(result)} records")  # Debug print
+        return result
+        print(f"Found records: {result}")
     def insert(self, key_value: Tuple):
         """
         If the root is full, split the root and create a new root

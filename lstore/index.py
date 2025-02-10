@@ -35,10 +35,20 @@ class Index:
     def locate_range(self, begin, end, column):
         # if column has not been created
         if self.indices[column] is None:
-            return None
-
-        return self.indices[ column ].get_range(begin, end)
-
+            self.create_index(column)
+            
+        result = set()
+        current_index = self.indices[column]
+        
+        # Get all keys in range
+        current = begin
+        while current <= end:
+            value = current_index.get(current)
+            if value is not None:
+                result.add(value)
+            current += 1
+            
+        return result if result else set()
     """
     # optional: Create index on specific column
     """

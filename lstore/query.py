@@ -32,40 +32,25 @@ class Query:
     """
 
     def insert(self, *columns):
-        # Fail if mismatching number of columns
         if len(columns) != self.table.num_columns:
             return False
 
-        primary_key = columns[ self.table.key ]
-
-        # Fail if primary key already exists
+        primary_key = columns[self.table.key]
+        # First check if key exists
         if self.index.locate(self.table.key, primary_key) is not None:
             return False
 
-        # schema_encoding is part of the metadata columns.
-        # metadata columns should include
-            # indirection (base record points to latest tail record)
-            # schema encoding
-            # start time  (datetime?)
-            # last update (initialize as None)
-            # schema_encoding = '0' * self.table.num_columns
+        # Create record
+        self.table.create_record(columns)
+        rid = self.table.rid_counter - 1  # Get RID of just created record
 
-        # does create_record need the primary key?
-        self.table.create_record( columns )
-        rid = self.table.rid_counter - 1
-
-        # insert each column into btree
-        for column_idx in range(len(columns)):
-            self.index.create_index(column_idx)
-            value = columns[column_idx]
-
-            if self.index.indices[column_idx].get(value) is None:
-                self.index.indices[column_idx].insert( (value, {rid}) )
-            else: 
-                self.index.indices[column_idx].get(value).add(rid)  # Add to existing set
+        # Create index and insert
+        self.index.create_index(self.table.key)
+        self.index.indices[self.table.key].insert((primary_key, rid))
 
         return True
-
+        
+        print(f"Inserting key {primary_key} with RID {rid}")
 
     """
     # Read matching record with specified search key
@@ -131,9 +116,10 @@ class Query:
             raise ValueError("Invalid relative version")
 
         # Get the base RIDs with the search key
-        rid_list = self.index.locate(search_key_index, search_key)
-        if rid_list is None:
+        rid = self.index.locate(search_key_index, search_key)
+        if rid is None:
             return False
+        rid_list = [rid]  # Convert single RID to list
 
         # Get latest records for the base RIDs
         latest_record_list = [self.table.get_latest_record(rid) for rid in rid_list]
@@ -172,33 +158,44 @@ class Query:
     """
 
     def update(self, primary_key, *columns):
-        # Fail if mismatching number of columns
         if len(columns) != self.table.num_columns:
             return False
 
         primary_key_column_idx = self.table.key
-        # Fail if record does not exist
-        rids = self.index.locate( primary_key_column_idx, primary_key )
-
-        if rids == None:
+        rid = self.index.locate(primary_key_column_idx, primary_key)
+        if rid is None:
             return False
         
-        # Update record in table and index
-        sorted(rids)
-        rid = rids.pop()
+        # Create indices for all columns first
+        for col_index in range(self.table.num_columns):
+            self.index.create_index(col_index)
+            
         old_record = self.table.get_record(rid)
         self.table.update_record(rid, list(columns))
 
         # Update B+ tree index for each column that changed
         for col_index, new_value in enumerate(columns):
+
+            if new_value is None:  # Skip if no update for this column
+                continue
+                
             old_value = old_record.columns[col_index]
+            
+            old_rid_set = self.index.indices[col_index].get(old_value)
+            if old_rid_set and rid in old_rid_set:
+                old_rid_set.remove(rid)
+                if not old_rid_set:
+                    try:
+                        self.index.indices[col_index].remove(old_value)
+                    except:
+                        pass  
 
-            if new_value is None:
-                new_value = old_value
-
-            # Update Index
-            self.index.indices[col_index].remove(old_value)
-            self.index.indices[col_index].insert( (new_value, {rid}) )
+            # Inserting new value
+            new_rid_set = self.index.indices[col_index].get(new_value)
+            if new_rid_set is not None:
+                new_rid_set.add(rid)
+            else:
+                self.index.indices[col_index].insert((new_value, {rid}))
 
         return True
 
@@ -249,10 +246,38 @@ class Query:
     """
 
     def sum_version(self, start_range, end_range, aggregate_column_index, relative_version):
-        # TODO : this entire function
+       
+        # Get all records in range
+        rid_list = self.table.index.indices[self.table.key].get_range(start_range, end_range)
+        if not rid_list:
+            return 0 
+            
+        summation = 0
+        for rid in rid_list:
+            try:
+                if relative_version == 0:
+                    record = self.table.get_latest_record(rid)
+                else:
+                    record = self.table.get_record(rid)
+                    current_record = record
 
-        return self.sum( start_range, end_range, aggregate_column_index )
+                    for _ in range(abs(relative_version) - 1):
+                        if current_record.indirection == current_record.rid:
+                            break
+                        next_record = self.table.get_record(current_record.indirection)
+                        if not next_record:
+                            break
+                        current_record = next_record
+                    record = current_record
 
+                if record and aggregate_column_index < len(record.columns):
+                    value = record.columns[aggregate_column_index]
+                    if value is not None:
+                        summation += value
+            except Exception as e:
+                continue
+
+        return summation
     """
     increments one column of the record
     this implementation should work if your select and update queries already work
