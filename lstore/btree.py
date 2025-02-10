@@ -73,6 +73,124 @@ class Node:
         if not self.is_leaf:
             for child in self.children:
                 child.debug_display(level + 1)
+    def remove(self, key: int, tree):
+        """
+        Removes a key from the B-Tree.
+        Ensures the tree remains balanced after removal.
+        """
+        idx = self.find_key_index(key)
+
+        # Case 1: Key is in this node
+        if idx < len(self.keys) and self.keys[idx][0] == key:
+            if self.is_leaf:
+                self.keys.pop(idx)  # Direct removal from leaf
+            else:
+                self.remove_internal_node_key(idx, tree)
+        else:
+            # Key is not in this node, find the correct child
+            if self.is_leaf:
+                return  # Key not found, nothing to do
+
+            child = self.children[idx]
+            if len(child.keys) < self.t:
+                self.ensure_valid_child(idx, tree)
+            
+            # Recursive delete in the adjusted child node
+            self.children[idx].remove(key, tree)
+
+    def find_key_index(self, key: int):
+        """Helper function to find index of a key or the child where key should exist"""
+        i = 0
+        while i < len(self.keys) and key > self.keys[i][0]:
+            i += 1
+        return i
+
+    def remove_internal_node_key(self, idx: int, tree):
+        """
+        Handles deletion when the key is in an internal node.
+        """
+        if len(self.children[idx].keys) >= self.t:
+            # Use predecessor (largest in left subtree)
+            pred_key = self.get_predecessor(idx)
+            self.keys[idx] = pred_key
+            self.children[idx].remove(pred_key[0], tree)
+        elif len(self.children[idx + 1].keys) >= self.t:
+            # Use successor (smallest in right subtree)
+            succ_key = self.get_successor(idx)
+            self.keys[idx] = succ_key
+            self.children[idx + 1].remove(succ_key[0], tree)
+        else:
+            # Merge children and remove recursively
+            self.merge_children(idx)
+            self.children[idx].remove(self.keys[idx][0], tree)
+
+    def ensure_valid_child(self, idx: int, tree):
+        """
+        Ensures the child at index idx has enough keys for deletion.
+        """
+        if idx > 0 and len(self.children[idx - 1].keys) >= self.t:
+            self.borrow_from_left(idx)
+        elif idx < len(self.children) - 1 and len(self.children[idx + 1].keys) >= self.t:
+            self.borrow_from_right(idx)
+        else:
+            if idx < len(self.children) - 1:
+                self.merge_children(idx)
+            else:
+                self.merge_children(idx - 1)
+
+    def get_predecessor(self, idx: int):
+        """Finds the largest key in the left subtree (predecessor)."""
+        node = self.children[idx]
+        while not node.is_leaf:
+            node = node.children[-1]
+        return node.keys[-1]
+
+    def get_successor(self, idx: int):
+        """Finds the smallest key in the right subtree (successor)."""
+        node = self.children[idx + 1]
+        while not node.is_leaf:
+            node = node.children[0]
+        return node.keys[0]
+
+    def borrow_from_left(self, idx: int):
+        """
+        Borrows a key from the left sibling.
+        """
+        child = self.children[idx]
+        sibling = self.children[idx - 1]
+        child.keys.insert(0, self.keys[idx - 1])  # Move parent's key down
+        self.keys[idx - 1] = sibling.keys.pop()  # Move sibling's last key up
+
+        if not sibling.is_leaf:
+            child.children.insert(0, sibling.children.pop())
+
+    def borrow_from_right(self, idx: int):
+        """
+        Borrows a key from the right sibling.
+        """
+        child = self.children[idx]
+        sibling = self.children[idx + 1]
+        child.keys.append(self.keys[idx])  # Move parent's key down
+        self.keys[idx] = sibling.keys.pop(0)  # Move sibling's first key up
+
+        if not sibling.is_leaf:
+            child.children.append(sibling.children.pop(0))
+
+    def merge_children(self, idx: int):
+        """
+        Merges the child at idx with its right sibling.
+        """
+        child = self.children[idx]
+        sibling = self.children[idx + 1]
+        child.keys.append(self.keys[idx])  # Move parent key down
+        child.keys.extend(sibling.keys)  # Merge sibling's keys
+
+        if not child.is_leaf:
+            child.children.extend(sibling.children)  # Merge sibling's children
+
+        self.keys.pop(idx)
+        self.children.pop(idx + 1)
+
     
 """
 Data Structure B-Tree
@@ -170,9 +288,37 @@ class Btree:
             new_child.children = child.children[t:(2 * t)]
             child.children = child.children[:t]
     
-    
-    
-    
+    def remove(self, key: int):
+        """
+        Removes a key from the B-Tree.
+        If the tree becomes empty after deletion, adjust the root.
+        """
+        if not self.root:
+            return
+
+        self.root.remove(key, self)
+
+        # If the root becomes empty after removal, update root
+        if len(self.root.keys) == 0:
+            if self.root.is_leaf:
+                self.root = None  # Tree is empty
+            else:
+                self.root = self.root.children[0]  # Make child the new root
+
+    def merge_children(self, parent: Node, idx: int):
+        """
+        Merges two child nodes at index idx and idx+1 into one.
+        """
+        child = parent.children[idx]
+        sibling = parent.children[idx + 1]
+        child.keys.append(parent.keys[idx])  # Move key down
+        child.keys.extend(sibling.keys)  # Merge sibling keys
+
+        if not child.is_leaf:
+            child.children.extend(sibling.children)  # Merge children
+
+        parent.keys.pop(idx)
+        parent.children.pop(idx + 1)
 
 # Example Usage:
 if __name__ == "__main__":
@@ -190,4 +336,3 @@ if __name__ == "__main__":
 
     b_tree.insert((10, 9999))
     b_tree.debug_display()
-
