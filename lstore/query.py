@@ -197,6 +197,7 @@ class Query:
                 new_value = old_value
 
             # Update Index
+            self.index.indices[col_index].remove(old_value)
             self.index.indices[col_index].insert( (new_value, {rid}) )
 
         return True
