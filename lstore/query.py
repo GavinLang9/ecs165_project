@@ -107,7 +107,7 @@ class Query:
         # apply projected_columns_index
         final_records = []
         for record in record_list:
-            tmp_columns = tuple( column for column, include in zip( record.columns, projected_columns_index ) if include == 1 )
+            tmp_columns = tuple( column for column, include in zip( [record.key] + list(record.columns), projected_columns_index ) if include == 1 )
             final_records.append( Record( record.rid, record.indirection, record.key, tmp_columns ) )
 
         return final_records
@@ -160,15 +160,10 @@ class Query:
                 current_record = previous_record  # Move to the older version
 
             # Apply column projection
-            tmp_columns = tuple(column for column, include in zip(current_record.columns, projected_columns_index) if include == 1)
+            tmp_columns = tuple(column for column, include in zip([current_record.key] + list(current_record.columns), projected_columns_index) if include == 1)
             final_records.append(Record(current_record.rid, current_record.indirection, current_record.key, tmp_columns))
 
-
         return final_records
-
-
-
-    
         
     """
     # Update a record with specified key and columns
