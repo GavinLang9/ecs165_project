@@ -127,18 +127,48 @@ class Query:
     """
 
     def select_version(self, search_key, search_key_index, projected_columns_index, relative_version):
-        # Get the record with version info
-        rid = self.table.index.locate(search_key_index, search_key)
-        if rid is None:
+        if relative_version > 0:
+            raise ValueError("Invalid relative version")
+
+        # Get the base RIDs with the search key
+        rid_list = self.index.locate(search_key_index, search_key)
+        if rid_list is None:
             return False
-            
-        if relative_version == 0:
-            record = self.table.get_latest_record(rid)
-        else:
-            record = self.table.get_record(rid)
-            
-        if record is None:
-            return False
+
+        # Get latest records for the base RIDs
+        latest_record_list = [self.table.get_latest_record(rid) for rid in rid_list]
+
+        if relative_version == 0:  # Fetch the latest version
+            return latest_record_list
+
+        final_records = []
+        for record in latest_record_list:
+            base_rid = record.rid
+            current_record = record  # Start from the latest record
+        
+            # Traverse backwards through previous versions
+            for step in range(abs(relative_version)):  
+                
+                if current_record.indirection is None or current_record.indirection == base_rid:  
+                    break  # Stop if no more history exists
+                
+                previous_record = self.table.get_record(current_record.indirection)
+                
+                if previous_record is None:
+                    break  # Stop if we reached a dead end
+                
+                current_record = previous_record  # Move to the older version
+
+            # Apply column projection
+            tmp_columns = tuple(column for column, include in zip(current_record.columns, projected_columns_index) if include == 1)
+            final_records.append(Record(current_record.rid, current_record.indirection, current_record.key, tmp_columns))
+
+
+        return final_records
+
+
+
+    
         
     """
     # Update a record with specified key and columns
