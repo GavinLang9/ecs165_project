@@ -80,7 +80,7 @@ class Table:
             int(time() * 1000),             # TIMESTAMP
             0            # SCHEMA ENCODING
         ]
-        record_data = metadata + list( columns )
+        record_data = metadata + list(columns)
 
         # returns a tuple of lists that hold page range and page indexes for each column
         page_range_ids, column_page_ids = self._get_base_write_locations()
@@ -237,7 +237,7 @@ class Table:
             page = self.bufferpool.get_page(page_range_id, page_id)
             value = page[offset]
             columns.append(value)
-        record = Record(rid, columns[0], columns[self.key + NUM_META_COLUMNS], columns[5:]) # 4 columns of metadata followed by key
+        record = Record(rid, columns[0], columns[self.key + NUM_META_COLUMNS], columns[4:]) # 4 columns of metadata followed by key
         return record
 
     def _new_pages_will_overflow_page_range(self, current_page, total_columns):
