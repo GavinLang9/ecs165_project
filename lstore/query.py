@@ -102,7 +102,7 @@ class Query:
         # get all Record objects from rid_list
         record_list = []
         for rid in rid_list:
-            record_list.append( self.table.get_record( rid ) )
+            record_list.append( self.table.get_latest_record( rid ) )
 
         # apply projected_columns_index
         final_records = []
