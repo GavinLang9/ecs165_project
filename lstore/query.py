@@ -1,3 +1,4 @@
+import pdb
 from lstore.table import Table, Record
 from lstore.index import Index
 
@@ -98,7 +99,6 @@ class Query:
 
         # get all RIDs of records that match search criteria
         rid_list = self.index.locate(search_key_index, search_key)
-
         # get all Record objects from rid_list
         record_list = []
         for rid in rid_list:
@@ -186,19 +186,9 @@ class Query:
         # Update record in table and index
         sorted(rids)
         rid = rids.pop()
+        rids.add(rid)
         old_record = self.table.get_record(rid)
         self.table.update_record(rid, list(columns))
-
-        # Update B+ tree index for each column that changed
-        for col_index, new_value in enumerate(columns):
-            old_value = old_record.columns[col_index]
-
-            if new_value is None:
-                new_value = old_value
-
-            # Update Index
-            self.index.indices[col_index].remove(old_value)
-            self.index.indices[col_index].insert( (new_value, {rid}) )
 
         return True
 
