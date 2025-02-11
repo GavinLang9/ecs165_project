@@ -253,7 +253,7 @@ class Table:
 
         """
         self._write_record_column(base_rid, 0, tail_rid)
-        schema_encoding_int = int.from_bytes(self._convert_schema_encoding_to_bytes(schema_encoding))
+        schema_encoding_int = int.from_bytes(self._convert_schema_encoding_to_bytes(schema_encoding), byteorder='big')
         self._write_record_column(base_rid, 3, schema_encoding_int)
 
     def get_record(self, rid: int) -> Record:
@@ -439,7 +439,7 @@ class Table:
     
     def _convert_schema_encoding_to_bytes(self, schema_encoding: list[int]) -> bytearray:
         bit_string = ''.join(map(str, schema_encoding))
-        return int(bit_string, 2).to_bytes(8)
+        return int(bit_string, 2).to_bytes(8, byteorder='big')
     
     def _convert_int_to_schema_encoding(self, schema_encoding: int) -> list[int]:
         bit_string = bin(schema_encoding)[2:].zfill(self.num_columns)
