@@ -185,12 +185,7 @@ class Query:
             return False
         
         # Update record in table and index
-        sorted(rids)
-        rid = rids.pop()
-        rids.append(rid)
-        old_record = self.table.get_record(rid)
-        self.table.update_record(rid, list(columns))
-
+        self.table.update_record(rids[0], list(columns))
         return True
 
 
