@@ -47,37 +47,21 @@ class Node:
         time complexity: O(log(n) + k)
         space complexity: O(k)
         """
+
         # Find the first key greater than or equal to the key
-        # i = 0
-        # while i < len(self.keys) and self.keys[i][0] < start:
-        #     i += 1
-        # for i, key in enumerate(self.keys):
+        i = 0
+        while i < len(self.keys) and self.keys[i][0] < start:
+            i += 1
 
-        # # Visit the first child if the node is not a leaf
-        #     if not self.is_leaf:
-        #         # for j in range(self.t):
-        #             self.children[i].get_range(pairs, start, end)
-        #     if start <= key[0] <= end:
-        #         pairs.append(key[1])
-        #     if not self.is_leaf:
-        #         self.children[-1].get_range(pairs, start, end)
-        
-        # while i < len(self.keys) and self.keys[i][0] < start:
-        #     i += 1
+        while i < len(self.keys) and self.keys[i][0] <= end:
+            if not self.is_leaf:
+                self.children[i].get_range(pairs, start, end)
 
-        # # Process all keys in the current node within range
-        # while i < len(self.keys) and self.keys[i][0] <= end:
-        #     # Visit left child if relevant
-        #     if not self.is_leaf:
-        #         self.children[i].get_range(pairs, start, end)
-            
-        #     # Append key if in range
-        #     pairs.append(self.keys[i][1])
-        #     i += 1
-        
-        for i in range(start, end + 1):
-            rid = self.get(i)
-            pairs.append(rid)
+            pairs.append(self.keys[i][1])
+            i += 1
+
+        if not self.is_leaf and i < len(self.children):
+            self.children[i].get_range(pairs, start, end)
 
     def debug_display(self, level=0):
         """
@@ -337,20 +321,3 @@ class Btree:
 
         parent.keys.pop(idx)
         parent.children.pop(idx + 1)
-
-# Example Usage:
-if __name__ == "__main__":
-    b_tree = Btree(3)  # B-Tree of minimum degree 3
-    
-    keys = [(10, 1), (20, 1), (5, 6), (6, 2), (12, 100), (30, 1), (7, 3), (17, 4)]
-    for val in keys:
-        b_tree.insert(val)
-    print("Traversal of B-tree:")
-    b_tree.debug_display()
-    print("Get result for key 6:", "Found" if b_tree.get(6) else "Not Found")
-
-    print("All key-value pairs in B-Tree:")
-    print(b_tree.get_range(5, 17))
-
-    b_tree.insert((10, 9999))
-    b_tree.debug_display()
