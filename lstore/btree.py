@@ -1,3 +1,4 @@
+import pdb
 from typing import List, Tuple
 
 """
@@ -46,21 +47,38 @@ class Node:
         time complexity: O(log(n) + k)
         space complexity: O(k)
         """
-
         # Find the first key greater than or equal to the key
-        i = 0
-        while i < len(self.keys) and self.keys[i][0] < start:
-            i += 1
+        # i = 0
+        # while i < len(self.keys) and self.keys[i][0] < start:
+        #     i += 1
+        # for i, key in enumerate(self.keys):
 
-        # Visit the first child if the node is not a leaf
-        if not self.is_leaf and i < len(self.children):
-            self.children[i].get_range(pairs, start, end)
+        # # Visit the first child if the node is not a leaf
+        #     if not self.is_leaf:
+        #         # for j in range(self.t):
+        #             self.children[i].get_range(pairs, start, end)
+        #     if start <= key[0] <= end:
+        #         pairs.append(key[1])
+        #     if not self.is_leaf:
+        #         self.children[-1].get_range(pairs, start, end)
+        
+        # while i < len(self.keys) and self.keys[i][0] < start:
+        #     i += 1
 
-        # Traverse the keys in the node
-        while i < len(self.keys) and self.keys[i][0] <= end:
-            pairs.append(self.keys[i][1])
-            i += 1
+        # # Process all keys in the current node within range
+        # while i < len(self.keys) and self.keys[i][0] <= end:
+        #     # Visit left child if relevant
+        #     if not self.is_leaf:
+        #         self.children[i].get_range(pairs, start, end)
             
+        #     # Append key if in range
+        #     pairs.append(self.keys[i][1])
+        #     i += 1
+        
+        for i in range(start, end + 1):
+            rid = self.get(i)
+            pairs.append(rid)
+
     def debug_display(self, level=0):
         """
         Traverse the B-Tree

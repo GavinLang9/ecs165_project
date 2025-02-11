@@ -61,9 +61,9 @@ class Query:
             value = columns[column_idx]
 
             if self.index.indices[column_idx].get(value) is None:
-                self.index.indices[column_idx].insert( (value, {rid}) )
+                self.index.indices[column_idx].insert( (value, [rid]) )
             else: 
-                self.index.indices[column_idx].get(value).add(rid)  # Add to existing set
+                self.index.indices[column_idx].get(value).append(rid)  # Add to existing set
 
         return True
 
@@ -108,7 +108,7 @@ class Query:
         final_records = []
         for record in record_list:
             tmp_columns = tuple( column for column, include in zip( list(record.columns), projected_columns_index ) if include == 1 )
-            final_records.append( Record( record.rid, record.indirection, record.key, tmp_columns ) )
+            final_records.append( Record( record.rid, record.indirection, record.schema_encoding, record.key, tmp_columns ) )
 
         return final_records
 
@@ -137,19 +137,20 @@ class Query:
 
         # Get latest records for the base RIDs
         latest_record_list = [self.table.get_latest_record(rid) for rid in rid_list]
-
+        
         if relative_version == 0:  # Fetch the latest version
             return latest_record_list
-
+        base_record_list = [self.table.get_record(rid) for rid in rid_list]
+        tail_record_list = [self.table.get_record(base_record.indirection) for base_record in base_record_list]
         final_records = []
-        for record in latest_record_list:
-            base_rid = record.rid
+        for i, record in enumerate(tail_record_list):
+            current_rid = record.rid
             current_record = record  # Start from the latest record
         
             # Traverse backwards through previous versions
             for step in range(abs(relative_version)):  
                 
-                if current_record.indirection is None or current_record.indirection == base_rid:  
+                if current_record.indirection is None or current_record.indirection == current_rid:  
                     break  # Stop if no more history exists
                 
                 previous_record = self.table.get_record(current_record.indirection)
@@ -161,7 +162,7 @@ class Query:
 
             # Apply column projection
             tmp_columns = tuple(column for column, include in zip(list(current_record.columns), projected_columns_index) if include == 1)
-            final_records.append(Record(current_record.rid, current_record.indirection, current_record.key, tmp_columns))
+            final_records.append(Record(current_record.rid, current_record.indirection, current_record.schema_encoding, current_record.key, tmp_columns))
 
         return final_records
         
@@ -186,7 +187,7 @@ class Query:
         # Update record in table and index
         sorted(rids)
         rid = rids.pop()
-        rids.add(rid)
+        rids.append(rid)
         old_record = self.table.get_record(rid)
         self.table.update_record(rid, list(columns))
 
@@ -204,19 +205,20 @@ class Query:
 
     def sum(self, start_range, end_range, aggregate_column_index):
         # Fail if start_range does not exist
-        if self.table.index.locate( self.table.key, start_range ) == None:
+        if self.index.locate( self.table.key, start_range ) == None:
             return False
 
         # TODO : Fail if aggregate_column_index is out of bounds
 
         # get all RIDs of records that match search criteria
-        rid_list = self.table.index.locate_range( start_range, end_range, self.table.key )
+        rid_list = self.index.locate_range( start_range, end_range, self.table.key )
 
         # get all Record objects from rid_list
         record_list = []
+        
         for rid in rid_list:
-            record_list.append(self.table.get_record(rid))
-
+            if rid is not None:
+                record_list.append(self.table.get_latest_record(rid[0]))
         # get summation from each record's aggregate_column_index
         summation = 0
         for record in record_list:
@@ -239,9 +241,30 @@ class Query:
     """
 
     def sum_version(self, start_range, end_range, aggregate_column_index, relative_version):
-        # TODO : this entire function
+                # Fail if start_range does not exist
+        if self.index.locate( self.table.key, start_range ) == None:
+            return False
 
-        return self.sum( start_range, end_range, aggregate_column_index )
+        # TODO : Fail if aggregate_column_index is out of bounds
+
+        # get all RIDs of records that match search criteria
+        # rid_list = self.index.locate_range( start_range, end_range, self.table.key )
+
+        # get all Record objects from rid_list
+        record_list = []
+        for key in range(start_range, end_range + 1):
+            record = self.select_version(key, self.table.key, [1]*self.table.num_columns, relative_version)
+            if record is not False:
+                record_list.append(record[0])
+            # else:
+            #     raise ValueError('record is none')
+
+        # get summation from each record's aggregate_column_index
+        summation = 0
+        for record in record_list:
+            summation += record.columns[ aggregate_column_index ]
+
+        return summation
 
     """
     increments one column of the record
