@@ -17,9 +17,10 @@ PAGE_RANGE_MAX_LEN = 64
 NUM_META_COLUMNS = 4
 
 class Record:
-    def __init__(self, rid, indirection, key, columns):
+    def __init__(self, rid, indirection, schema_encoding, key, columns):
         self.rid = rid
         self.indirection = indirection
+        self.schema_encoding = schema_encoding
         self.key = key
         self.columns = columns
     
@@ -27,6 +28,7 @@ class Record:
         s = ''
         s += f'rid: {self.rid}\n'
         s += f'indirection: {self.indirection}\n'
+        s += f'schema encoding: {self.schema_encoding}\n'
         s += f'key: {self.key}\n'
         s += f'columns: {self.columns}\n'
         return s
@@ -87,14 +89,20 @@ class Table:
 
         offsets = []
         # write each column to their corresponding location in disk
-        for value, page_range_id, page_id in zip(record_data, page_range_ids, column_page_ids):
+        for i, (value, page_range_id, page_id) in enumerate(zip(record_data, page_range_ids, column_page_ids)):
             page = self.bufferpool.get_page(page_range_id, page_id)
 
             if not page:
                 page = Page()
                 
             if not page.has_capacity():
-                raise IndexError("This page has no space")
+                page = Page()
+                page_id = self._next_free_page()
+                if page_id == 0:
+                    page_range_id = self._next_free_page_range()
+                page_range_ids[i] = page_range_id
+                column_page_ids[i] = page_id
+                # raise IndexError("This page has no space")
 
             index = page.write(value)
             offsets.append(index)
@@ -115,11 +123,15 @@ class Table:
                 [key, col 1, None, col 3, ...]
         """
         # create meta data columns
+        # pdb.set_trace()
         if len(columns) != self.num_columns:
             raise ValueError("Invalid number of columns")
-        indirection_rid = self.get_record(base_rid).indirection
+        base_record = self.get_record(base_rid)
+        indirection_rid = base_record.indirection
         tail_rid = self.rid_counter
+        base_schema_encoding = self._convert_int_to_schema_encoding(base_record.schema_encoding)
         schema_encoding = self._get_schema_encoding( columns )
+        schema_encoding = self._logical_or(base_schema_encoding, schema_encoding)
         schema_encoding_bytes = self._convert_schema_encoding_to_bytes(schema_encoding)
 
         metadata = [
@@ -145,7 +157,13 @@ class Table:
                 page = Page()
 
             if not page.has_capacity():
-                raise IndexError("This page has no space")
+                page = Page()
+                page_id = self._next_free_page()
+                if page_id == 0:
+                    page_range_id = self._next_free_page_range()
+                page_range_ids[i] = page_range_id
+                column_page_ids[i] = page_id                
+                # raise IndexError("This page has no space")
 
             index = page.write(value)
             offsets[i] = index
@@ -155,6 +173,7 @@ class Table:
             self.current_tail_page_range[i] = page_range_id
             self.current_tail_page[i] = page_id
         # Update table metadata
+        # pdb.set_trace()
         self.page_directory[tail_rid] = (page_range_ids, column_page_ids, offsets)
         self._update_tail_indexes(offsets)
         self._update_base_record_metadata( base_rid, tail_rid, schema_encoding )
@@ -168,15 +187,28 @@ class Table:
         Note: base record indirection is latest tail record RID,
               tail record indirection is previous tail record RID
         """
+
         base_record = self.get_record( base_rid )
+        schema_encoding = self._convert_int_to_schema_encoding(base_record.schema_encoding)
 
         # return record if indirection is RID
         # AKA return record if it is the base record (has no updates)
         if base_record.indirection == base_record.rid:
             return base_record
+        
+        current_tail_record = self.get_record( base_record.indirection )
+        columns = current_tail_record.columns
 
-        latest_tail_record = self.get_record( base_record.indirection )
-       
+        while self._missing_updated_columns(schema_encoding, columns):
+            next_tail_record = self.get_record(current_tail_record.indirection)
+            if next_tail_record.rid == current_tail_record.rid:
+                raise ValueError('cannot fill all columns in schema encoding')
+            for index, col in enumerate(next_tail_record.columns):
+                if columns[index] == None and col != None:
+                    columns[index] = col
+            current_tail_record = next_tail_record
+
+        latest_tail_record = Record(None, None, None, None, columns)
         # Using cumulative tail records
         # Fill in all None values with base record values
         latest_tail_record = self._get_cumulative_tail_record_columns(latest_tail_record, base_record)
@@ -221,23 +253,32 @@ class Table:
 
         """
         self._write_record_column(base_rid, 0, tail_rid)
-        schema_encoding_bytes = self._convert_schema_encoding_to_bytes(schema_encoding)
-        self._write_record_column(base_rid, 3, schema_encoding_bytes)
+        schema_encoding_int = int.from_bytes(self._convert_schema_encoding_to_bytes(schema_encoding))
+        self._write_record_column(base_rid, 3, schema_encoding_int)
 
     def get_record(self, rid: int) -> Record:
         """
         returns constructed record by getting each column value from their respective pages
         """
+        
         page_range_ids, page_ids, offsets = self.page_directory[rid]
         columns = []
+        # if rid == 16196:
+            # pdb.set_trace()
         for page_range_id, page_id, offset in zip(page_range_ids, page_ids, offsets):
             if page_range_id == None or page_id == None or offset == None:
                 columns.append(None)
                 continue
+            # if page_range_id == 20695 and page_id == 58 and offset == 0:
+            #     pdb.set_trace()
             page = self.bufferpool.get_page(page_range_id, page_id)
+            if page is None:
+                columns.append(None)
+                continue
             value = page[offset]
             columns.append(value)
-        record = Record(rid, columns[0], columns[self.key + NUM_META_COLUMNS], columns[4:]) # 4 columns of metadata followed by key
+        
+        record = Record(rid, columns[INDIRECTION_COLUMN], columns[SCHEMA_ENCODING_COLUMN], columns[self.key + NUM_META_COLUMNS], columns[4:]) # 4 columns of metadata followed by key
         return record
 
     def _new_pages_will_overflow_page_range(self, current_page, total_columns):
@@ -399,6 +440,41 @@ class Table:
     def _convert_schema_encoding_to_bytes(self, schema_encoding: list[int]) -> bytearray:
         bit_string = ''.join(map(str, schema_encoding))
         return int(bit_string, 2).to_bytes(8)
+    
+    def _convert_int_to_schema_encoding(self, schema_encoding: int) -> list[int]:
+        bit_string = bin(schema_encoding)[2:].zfill(self.num_columns)
+    
+        # Return a list of bits as integers
+        return [int(bit) for bit in bit_string]
+    
+    def _logical_or(self, arr1, arr2):
+        """
+        Performs a logical OR operation on two arrays of 0s and 1s.
+
+        Args:
+            arr1: The first array.
+            arr2: The second array.
+
+        Returns:
+            A new array with the result of the logical OR operation.
+        """
+
+        if len(arr1) != len(arr2):
+            raise ValueError("Arrays must have the same length")
+
+        result = []
+        for i in range(len(arr1)):
+            result.append(1 if (arr1[i] or arr2[i]) else 0)
+        return result
+    
+    def _missing_updated_columns(self, schema_encoding: list[int], columns: list[int | None]) -> int:
+    # Ensure both arrays have the same length
+        if len(schema_encoding) != len(columns):
+            pdb.set_trace()
+            raise ValueError("Arrays must have the same length.")
+
+        # Count mismatches where schema_encoding is 1, but the columns array has None
+        return sum(1 for b, m in zip(schema_encoding, columns) if b == 1 and m is None)
     
     # Checks if page range is full based on page_id counter
     def _page_range_is_full(self, current_page, total_columns):
