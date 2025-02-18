@@ -1,4 +1,6 @@
 import pdb
+import struct
+from lstore.btree import Btree, Node
 from lstore.index import Index
 from lstore.table import Table
 import os
@@ -205,5 +207,120 @@ class Database():
         
         return data  
     
-    def _convert_index_to_bytes(self, index: Index) -> bytearray:
-        pass
+    
+
+    def _serialize_index(self, index: Index) -> bytearray:
+        """Serialize a list of B-Trees into a bytearray."""
+        data = bytearray()
+        data.extend(struct.pack("I", len(index)))  # Store number of trees
+        
+        for tree in index:
+            if tree is None:
+                data.extend(struct.pack("I", 0))  # Mark empty tree
+            else:
+                tree_bytes = self.serialize_btree(tree)
+                data.extend(struct.pack("I", len(tree_bytes)))  # Store tree size
+                data.extend(tree_bytes)
+        
+        return data
+
+    def deserialize_index(self, data):
+        """Deserialize a bytearray back into a list of B-Trees."""
+        offset = 0
+        num_trees = struct.unpack_from("I", data, offset)[0]
+        offset += 4
+        
+        index = []
+        
+        for _ in range(num_trees):
+            tree_size = struct.unpack_from("I", data, offset)[0]
+            offset += 4
+            
+            if tree_size == 0:
+                index.append(None)  # Empty tree
+            else:
+                tree = self.deserialize_btree(data[offset: offset + tree_size])
+                offset += tree_size
+                index.append(tree)
+        
+        return index
+
+    def serialize_btree(self, tree):
+        """Convert a B-tree into a bytearray (without Pickle)."""
+        data = bytearray()
+        
+        # Store tree order
+        data.extend(struct.pack("B", tree.t))  # 1 byte for order
+        
+        nodes = []
+        node_positions = {}  # To track node positions in bytearray
+
+        # BFS traversal to assign positions
+        queue = [tree.root]
+        while queue:
+            node = queue.pop(0)
+            node_positions[node] = len(data)
+            nodes.append(node)
+            for child in node.children:
+                queue.append(child)
+        
+        # Store number of nodes
+        data.extend(struct.pack("Q", len(nodes)))  # 4 bytes
+
+        # Store each node
+        for node in nodes:
+            data.extend(struct.pack("B", 1 if node.is_leaf else 0))  # 1 byte for leaf flag
+            data.extend(struct.pack("B", len(node.keys)))  # 1 byte for number of keys
+            
+            for key in node.keys:
+                data.extend(struct.pack("Q", key))  # 4 bytes per key
+            
+            if not node.is_leaf:
+                for child in node.children:
+                    data.extend(struct.pack("Q", node_positions[child]))  # Store child offset
+
+        return data
+        
+    def deserialize_btree(self, data):
+        """Convert a bytearray back into a B-Tree."""
+        offset = 0
+        
+        # Read tree order
+        t = struct.unpack_from("B", data, offset)[0]
+        offset += 1
+        
+        tree = Btree(t)
+        
+        # Read number of nodes
+        num_nodes = struct.unpack_from("Q", data, offset)[0]
+        offset += 4
+
+        nodes = []
+        node_positions = {}
+
+        # Read nodes
+        for i in range(num_nodes):
+            is_leaf = struct.unpack_from("B", data, offset)[0]
+            offset += 1
+            
+            num_keys = struct.unpack_from("B", data, offset)[0]
+            offset += 1
+            
+            keys = [struct.unpack_from("Q", data, offset + 4 * j)[0] for j in range(num_keys)]
+            offset += 4 * num_keys
+            
+            node = Node(is_leaf, t)
+            node.keys = keys
+            nodes.append(node)
+            node_positions[i] = node
+        
+        # Assign children
+        for i in range(num_nodes):
+            node = nodes[i]
+            if not node.is_leaf:
+                num_children = len(node.keys) + 1
+                node.children = [nodes[struct.unpack_from("Q", data, offset + 4 * j)[0]] for j in range(num_children)]
+                offset += 4 * num_children
+        
+        tree.root = nodes[0]
+        return tree
