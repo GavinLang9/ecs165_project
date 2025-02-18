@@ -5,16 +5,8 @@ from lstore.disk import Disk
 from lstore.page import Page
 import pdb
 from time import time
+from lstore.config import *
 
-INDIRECTION_COLUMN = 0
-RID_COLUMN = 1
-TIMESTAMP_COLUMN = 2
-SCHEMA_ENCODING_COLUMN = 3
-
-BUFFER_POOL_CAPACITY = 16
-RECORDS_PER_PAGE = 512
-PAGE_RANGE_MAX_LEN = 64
-NUM_META_COLUMNS = 4
 
 class Record:
     def __init__(self, rid, indirection, schema_encoding, key, columns):
@@ -41,6 +33,7 @@ class Table:
     :param key: int             #Index of table key in columns
     """
     def __init__(self, name, num_columns, key):
+        self.path = ''
         self.name = name
         self.key = key
         self.num_columns = num_columns
@@ -123,7 +116,6 @@ class Table:
                 [key, col 1, None, col 3, ...]
         """
         # create meta data columns
-        # pdb.set_trace()
         if len(columns) != self.num_columns:
             raise ValueError("Invalid number of columns")
         base_record = self.get_record(base_rid)
@@ -173,7 +165,6 @@ class Table:
             self.current_tail_page_range[i] = page_range_id
             self.current_tail_page[i] = page_id
         # Update table metadata
-        # pdb.set_trace()
         self.page_directory[tail_rid] = (page_range_ids, column_page_ids, offsets)
         self._update_tail_indexes(offsets)
         self._update_base_record_metadata( base_rid, tail_rid, schema_encoding )
@@ -264,13 +255,11 @@ class Table:
         page_range_ids, page_ids, offsets = self.page_directory[rid]
         columns = []
         # if rid == 16196:
-            # pdb.set_trace()
         for page_range_id, page_id, offset in zip(page_range_ids, page_ids, offsets):
             if page_range_id == None or page_id == None or offset == None:
                 columns.append(None)
                 continue
             # if page_range_id == 20695 and page_id == 58 and offset == 0:
-            #     pdb.set_trace()
             page = self.bufferpool.get_page(page_range_id, page_id)
             if page is None:
                 columns.append(None)
@@ -470,7 +459,6 @@ class Table:
     def _missing_updated_columns(self, schema_encoding: list[int], columns: list[int | None]) -> int:
     # Ensure both arrays have the same length
         if len(schema_encoding) != len(columns):
-            pdb.set_trace()
             raise ValueError("Arrays must have the same length.")
 
         # Count mismatches where schema_encoding is 1, but the columns array has None
