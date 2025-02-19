@@ -12,7 +12,7 @@ class Node:
     def __init__(self, is_leaf: bool, t: int):
         self.is_leaf: bool = is_leaf
         self.t: int = t
-        self.keys: List[Tuple] = []
+        self.keys: List[Tuple] = []     #[(key, [rids])]
         self.children: List[Node]  = []
 
     def get(self, key: int) -> Tuple:

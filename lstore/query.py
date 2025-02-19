@@ -13,7 +13,7 @@ class Query:
 
     def __init__(self, table):
         self.table = table
-        self.index = Index(table)
+        self.index = self._deserialize_index(table)
         pass
 
     """
@@ -278,3 +278,8 @@ class Query:
             u = self.update(key, *updated_columns)
             return u
         return False
+
+    def _deserialize_index(self, table):
+        if table.index == None:
+            return Index(table)
+        return table.index

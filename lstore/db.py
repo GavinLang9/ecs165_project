@@ -5,6 +5,7 @@ from lstore.index import Index
 from lstore.table import Table
 import os
 from lstore.config import *
+from lstore.index_serializer import IndexSerializer
 class Database():
 
     def __init__(self):
@@ -20,14 +21,20 @@ class Database():
             return
         meta_data_dir = path + '/' + META_DATA_PATH
         page_directory_dir = path + '/' + PAGE_DIRECTORY_PATH
+        index_dir = path + '/' + INDEX_DIRECTORY_PATH
         for filename in os.listdir(meta_data_dir):
             meta_data_path = os.path.join(meta_data_dir, filename)
             page_directory_path = os.path.join(page_directory_dir, filename)
+            index_path = os.path.join(index_dir, 'test.json')
             if os.path.isfile(meta_data_path):
                 with open(meta_data_path, 'rb') as file:
-                    table = self._read_table_meta_data(file)
+                    table = self._deserialize_table_meta_data(file)
                 with open(page_directory_path, 'rb') as file:
-                    table.page_directory = self._read_page_directory(file, table.num_columns)
+                    table.page_directory = self._deserialize_page_directory(file, table.num_columns)
+                with open(index_path, 'r') as file:
+                    data = file.read()
+                    pdb.set_trace()
+                    table.index = IndexSerializer.deserialize_index(data, table)
                 self.tables.append(table)
 
     def close(self):
@@ -38,7 +45,9 @@ class Database():
         """
         
 
-        dirs = (os.path.join(self.path ,META_DATA_PATH), os.path.join(self.path, PAGE_DIRECTORY_PATH))
+        dirs = (os.path.join(self.path ,META_DATA_PATH), \
+                os.path.join(self.path, PAGE_DIRECTORY_PATH), \
+                os.path.join(self.path, INDEX_DIRECTORY_PATH))
         # Create directory if it doesn't exist
         for dir in dirs:
             if not os.path.exists(dir):
@@ -48,14 +57,14 @@ class Database():
             name = table.name
 
             meta_data_path = os.path.join(self.path ,META_DATA_PATH, f'{name}.bin')
-            meta_data_bytes = self._convert_meta_data_to_bytes(table)
+            meta_data_bytes = self._serialize_meta_data(table)
 
             page_directory_path = os.path.join(self.path, PAGE_DIRECTORY_PATH, f'{name}.bin')
-            page_directory_bytes = self._convert_page_directory_to_bytes(table)
+            page_directory_bytes = self._serialize_page_directory(table)
             # data_directory_path = os.path.join(data_dir, f'{name}.bin')
             # data_directory_bytes = self._convert_data_to_bytes
-            # index_directory_path = os.path.join(self.path, INDEX_DIRECTORY_PATH, f'{name}.bin')
-            # index_bytes = self._convert_index_to_bytes(table.index)
+            index_path = os.path.join(self.path, INDEX_DIRECTORY_PATH, f'{name}.json')
+            index_bytes = IndexSerializer.serialize_index(table.index)
 
             with open(meta_data_path, 'wb') as file:
                 file.write(meta_data_bytes)
@@ -64,6 +73,11 @@ class Database():
             with open(page_directory_path, 'wb') as file:
                 file.write(page_directory_bytes)
                 os.chmod(page_directory_path, 0o777)
+
+            with open(index_path, 'w') as file:
+                file.write(index_bytes)
+                os.chmod(index_path, 0o777)
+
 
     """
     # Creates a new table
@@ -94,7 +108,7 @@ class Database():
                 return table
         return False
 
-    def _read_table_meta_data(self, file) -> Table:
+    def _deserialize_table_meta_data(self, file) -> Table:
         """
         Reads in table metadata from metadata bin file
         """
@@ -131,7 +145,7 @@ class Database():
         return table
 
     
-    def _convert_meta_data_to_bytes(self, table: Table) -> bytearray:
+    def _serialize_meta_data(self, table: Table) -> bytearray:
         """
         converts all metadata in table to a byte array:
             name - 32 B
@@ -165,7 +179,7 @@ class Database():
         # print(data)
         return data
 
-    def _read_page_directory(self, file, num_columns) -> dict:
+    def _deserialize_page_directory(self, file, num_columns) -> dict:
         page_directory = {}
         num_entries = int.from_bytes(file.read(8), byteorder='big')
         for key in range(num_entries):
@@ -181,7 +195,7 @@ class Database():
             page_directory[key] = (page_range_ids, page_ids, offsets)
         return page_directory
 
-    def _convert_page_directory_to_bytes(self, table: Table) -> bytearray:
+    def _serialize_page_directory(self, table: Table) -> bytearray:
         """
         converts page_directory to byte arrays
             first 8 bytes are length of page_directory
@@ -207,120 +221,3 @@ class Database():
         
         return data  
     
-    
-
-    def _serialize_index(self, index: Index) -> bytearray:
-        """Serialize a list of B-Trees into a bytearray."""
-        data = bytearray()
-        data.extend(struct.pack("I", len(index)))  # Store number of trees
-        
-        for tree in index:
-            if tree is None:
-                data.extend(struct.pack("I", 0))  # Mark empty tree
-            else:
-                tree_bytes = self.serialize_btree(tree)
-                data.extend(struct.pack("I", len(tree_bytes)))  # Store tree size
-                data.extend(tree_bytes)
-        
-        return data
-
-    def deserialize_index(self, data):
-        """Deserialize a bytearray back into a list of B-Trees."""
-        offset = 0
-        num_trees = struct.unpack_from("I", data, offset)[0]
-        offset += 4
-        
-        index = []
-        
-        for _ in range(num_trees):
-            tree_size = struct.unpack_from("I", data, offset)[0]
-            offset += 4
-            
-            if tree_size == 0:
-                index.append(None)  # Empty tree
-            else:
-                tree = self.deserialize_btree(data[offset: offset + tree_size])
-                offset += tree_size
-                index.append(tree)
-        
-        return index
-
-    def serialize_btree(self, tree):
-        """Convert a B-tree into a bytearray (without Pickle)."""
-        data = bytearray()
-        
-        # Store tree order
-        data.extend(struct.pack("B", tree.t))  # 1 byte for order
-        
-        nodes = []
-        node_positions = {}  # To track node positions in bytearray
-
-        # BFS traversal to assign positions
-        queue = [tree.root]
-        while queue:
-            node = queue.pop(0)
-            node_positions[node] = len(data)
-            nodes.append(node)
-            for child in node.children:
-                queue.append(child)
-        
-        # Store number of nodes
-        data.extend(struct.pack("Q", len(nodes)))  # 4 bytes
-
-        # Store each node
-        for node in nodes:
-            data.extend(struct.pack("B", 1 if node.is_leaf else 0))  # 1 byte for leaf flag
-            data.extend(struct.pack("B", len(node.keys)))  # 1 byte for number of keys
-            
-            for key in node.keys:
-                data.extend(struct.pack("Q", key))  # 4 bytes per key
-            
-            if not node.is_leaf:
-                for child in node.children:
-                    data.extend(struct.pack("Q", node_positions[child]))  # Store child offset
-
-        return data
-        
-    def deserialize_btree(self, data):
-        """Convert a bytearray back into a B-Tree."""
-        offset = 0
-        
-        # Read tree order
-        t = struct.unpack_from("B", data, offset)[0]
-        offset += 1
-        
-        tree = Btree(t)
-        
-        # Read number of nodes
-        num_nodes = struct.unpack_from("Q", data, offset)[0]
-        offset += 4
-
-        nodes = []
-        node_positions = {}
-
-        # Read nodes
-        for i in range(num_nodes):
-            is_leaf = struct.unpack_from("B", data, offset)[0]
-            offset += 1
-            
-            num_keys = struct.unpack_from("B", data, offset)[0]
-            offset += 1
-            
-            keys = [struct.unpack_from("Q", data, offset + 4 * j)[0] for j in range(num_keys)]
-            offset += 4 * num_keys
-            
-            node = Node(is_leaf, t)
-            node.keys = keys
-            nodes.append(node)
-            node_positions[i] = node
-        
-        # Assign children
-        for i in range(num_nodes):
-            node = nodes[i]
-            if not node.is_leaf:
-                num_children = len(node.keys) + 1
-                node.children = [nodes[struct.unpack_from("Q", data, offset + 4 * j)[0]] for j in range(num_children)]
-                offset += 4 * num_children
-        
-        tree.root = nodes[0]
-        return tree
