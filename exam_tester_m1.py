@@ -2,6 +2,9 @@ from lstore.db import Database
 from lstore.query import Query
 
 from random import choice, randint, sample, seed
+import time
+
+start = time.time()
 
 db = Database()
 # Create a table  with 5 columns
@@ -123,3 +126,7 @@ for c in range(0, grades_table.num_columns):
             print('sum error on [', keys[r[0]], ',', keys[r[1]], ']: ', updated_result, ', correct: ', updated_column_sum)
         else:
             pass
+
+end = time.time()
+
+print("Time: ", end - start)

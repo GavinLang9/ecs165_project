@@ -1,7 +1,10 @@
 from lstore.db import Database
 from lstore.query import Query
+import time
 
 from random import choice, randint, sample, seed
+
+start = time.time()
 
 db = Database()
 # Create a table  with 5 columns
@@ -85,3 +88,5 @@ for c in range(0, grades_table.num_columns):
         else:
             pass
             # print('sum on [', keys[r[0]], ',', keys[r[1]], ']: ', column_sum)
+
+print("Time: ", time.time() - start)
