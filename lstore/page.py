@@ -1,8 +1,8 @@
-
-PAGE_SIZE = 4096
+import pdb
+from lstore.config import *
 
 class Page:
-    def __init__(self, record_size=8):
+    def __init__(self, record_size=RECORD_SIZE):
         self.num_records = 0
         self.record_size = record_size
         self.data = bytearray(PAGE_SIZE)
@@ -31,8 +31,8 @@ class Page:
         
         if type(value) != bytes:
             value = value.to_bytes(self.record_size, byteorder='big')  # Added byteorder here
-            
         index = self.num_records * self.record_size
+        self.data = bytearray(self.data)
         self.data[index: index + self.record_size] = value
         self.num_records += 1
         return (self.num_records - 1)
@@ -42,5 +42,6 @@ class Page:
             value = value.to_bytes(self.record_size, byteorder='big')  # Added byteorder here
             
         index = index * self.record_size
+        self.data = bytearray(self.data)
         self.data[index: index + self.record_size] = value
         return True

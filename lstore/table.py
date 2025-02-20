@@ -1,3 +1,4 @@
+import os
 from typing import Tuple
 from lstore.index import Index
 from lstore.bufferpool import BufferPool
@@ -38,8 +39,8 @@ class Table:
         self.key = key
         self.num_columns = num_columns
         self.page_directory = {}    # RID -> ([page_range_ids], [page_ids], [offsets])
-        self.disk = Disk()
-        self.bufferpool = BufferPool(BUFFER_POOL_CAPACITY, self.disk)
+        # self.disk = Disk()
+        self.bufferpool = BufferPool(BUFFER_POOL_CAPACITY, name)
         self.index = Index(self)    # Add this line for B-tree indexing
         self.rid_counter = 0
         
@@ -134,10 +135,8 @@ class Table:
         ]
 
         record_data = metadata + list( columns )
-
         # returns a tuple of lists that hold page range and page indexes for each column
         page_range_ids, column_page_ids = self._get_tail_write_locations(record_data)
-
         offsets = [None] * len(record_data)
         # write each column to their corresponding location in disk
         for i,(value, page_range_id, page_id) in enumerate(zip(record_data, page_range_ids, column_page_ids)):
@@ -343,7 +342,7 @@ class Table:
                 if self.current_tail_offset[i] == 0:
                     next_free_page = (self._next_free_page() + offset) % PAGE_RANGE_MAX_LEN
                     offset += 1
-                if next_free_page == 0 or next_free_page_range == 0:
+                if next_free_page == 0 or (next_free_page_range == 0 and next_free_page == 0):
                     next_free_page_range = self._next_free_page_range()
                     self.current_tail_page_range[i:] = [next_free_page_range] * (len(columns) - i)
                 page_range_ids[i] = next_free_page_range
@@ -472,7 +471,31 @@ class Table:
     def _page_is_full(self, current_offset):
         return current_offset % (RECORDS_PER_PAGE - 1) == 0
 
+    def _print_disk(self):
+        disk_path = os.path.join(self.path, DISK_DIRECTORY_PATH, f'{self.name}.bin')
+        num_bytes = os.path.getsize(disk_path)
+
+        page_range_id = 0
+        page_id = 0
+
+        current_offset = page_range_id * PAGE_RANGE_MAX_LEN * (PAGE_SIZE +16) + page_id * (PAGE_SIZE + 16)
+        with open(disk_path, 'rb') as disk:
+            bytes = disk.read(num_bytes)
+            while current_offset < num_bytes:
+                print(f'page {page_id}')
+                print(f'num_records = {int.from_bytes(bytes[current_offset: current_offset + 8])}\n')
+                page = Page()
+                page.num_records = int.from_bytes(bytes[current_offset: current_offset + 8])
+                page.data = bytes[current_offset + 16 : current_offset + PAGE_SIZE + 16]
+                print(f'{page}\n')
+                
+                page_id += 1 % PAGE_RANGE_MAX_LEN
+                if page_id == 0:
+                    page_range_id += 1
+                current_offset = page_range_id * PAGE_RANGE_MAX_LEN * (PAGE_SIZE +16) + page_id * (PAGE_SIZE + 16)
+    
     def __merge(self):
         print("merge is happening")
         pass
  
+    
