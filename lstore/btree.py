@@ -1,6 +1,4 @@
-import pdb
 from typing import List, Tuple
-
 """
 # Data Structure: Node
 #  param: is_leaf: bool - True if node is a leaf node, False otherwise
@@ -15,6 +13,26 @@ class Node:
         self.keys: List[Tuple] = []     #[(key, [rids])]
         self.children: List[Node]  = []
 
+    def binary_search(self, key: int) -> int:
+        """
+        Perform binary search to find the index of a key in the node.
+        """
+        low = 0
+        high = len(self.keys) - 1
+        
+        while low <= high:
+            mid = (low + high) // 2
+            curr_key = self.keys[mid][0]
+            
+            if curr_key == key:
+                return mid 
+            elif curr_key < key:
+                low = mid + 1
+            else:
+                high = mid - 1
+        
+        return low
+
     def get(self, key: int) -> Tuple:
         """
         Search for a key in the B-Tree
@@ -26,9 +44,7 @@ class Node:
         """
 
         # Find the first key greater than or equal to the key
-        i = 0
-        while i < len(self.keys) and key > self.keys[i][0]:
-            i += 1
+        i = self.binary_search(key)
         
         # Found the key in the node then return the value
         if i < len(self.keys) and key == self.keys[i][0]:
@@ -49,9 +65,7 @@ class Node:
         """
 
         # Find the first key greater than or equal to the key
-        i = 0
-        while i < len(self.keys) and self.keys[i][0] < start:
-            i += 1
+        i = self.binary_search(start)
 
         while i < len(self.keys) and self.keys[i][0] <= end:
             if not self.is_leaf:
@@ -80,32 +94,25 @@ class Node:
         Removes a key from the B-Tree.
         Ensures the tree remains balanced after removal.
         """
-        idx = self.find_key_index(key)
+        i = self.binary_search(key)
 
         # Case 1: Key is in this node
-        if idx < len(self.keys) and self.keys[idx][0] == key:
+        if i < len(self.keys) and self.keys[i][0] == key:
             if self.is_leaf:
-                self.keys.pop(idx)  # Direct removal from leaf
+                self.keys.pop(i)  # Direct removal from leaf
             else:
-                self.remove_internal_node_key(idx, tree)
+                self.remove_internal_node_key(i, tree)
         else:
             # Key is not in this node, find the correct child
             if self.is_leaf:
                 return  # Key not found, nothing to do
 
-            child = self.children[idx]
+            child = self.children[i]
             if len(child.keys) < self.t:
-                self.ensure_valid_child(idx, tree)
+                self.ensure_valid_child(i, tree)
             
             # Recursive delete in the adjusted child node
-            self.children[idx].remove(key, tree)
-
-    def find_key_index(self, key: int):
-        """Helper function to find index of a key or the child where key should exist"""
-        i = 0
-        while i < len(self.keys) and key > self.keys[i][0]:
-            i += 1
-        return i
+            self.children[i].remove(key, tree)
 
     def remove_internal_node_key(self, idx: int, tree):
         """
@@ -202,6 +209,7 @@ Data Structure B-Tree
 class Btree:
     def __init__(self, t: int):
         self.root = Node(is_leaf=True, t=t)
+        self.table = {}
         self.t = t
 
     def debug_display(self):
@@ -218,10 +226,10 @@ class Btree:
         """
         Search for a key in the B-Tree and returns the corresponding value
         """
-        if not self.root:
+        if not key in self.table:
             return None
         
-        return self.root.get(key)
+        return self.table.get(key)
     
     def get_range(self, start: int, end: int) -> List[int]:
         """
@@ -242,6 +250,7 @@ class Btree:
         param: key_value: Tuple - Key-value pair to be inserted
         """
 
+        self.table[key_value[0]] = key_value[1]
         root = self.root
         if len(root.keys) == (2 * self.t) - 1:
             new_root = Node(t=self.t, is_leaf=False)
@@ -254,25 +263,22 @@ class Btree:
         """
         Inset a key-value pair into a non-full node
         """
-        for i, (existing_key, existing_value) in enumerate(node.keys):
-            if existing_key == key_value[0]:
-                # Key found, update the value
-                node.keys[i] = key_value
-                return
+        idx = node.binary_search(key_value[0])
+
+        if idx < len(node.keys) and node.keys[idx][0] == key_value[0]:
+            # Key found, update the value
+            node.keys[idx] = key_value
+            return
 
         if node.is_leaf:
-            node.keys.append(key_value)
-            node.keys.sort()
+            node.keys.insert(idx, key_value)
         else:
-            i = len(node.keys) - 1
-            while i >= 0 and key_value[0] < node.keys[i][0]:
-                i -= 1
-            i += 1
-            if len(node.children[i].keys) == (2 * self.t) - 1:
-                self.split_child(node, i)
-                if key_value[0] > node.keys[i][0]:
-                    i += 1
-            self.insert_non_full(node.children[i], key_value)
+            child = node.children[idx]
+            if len(child.keys) == (2 * self.t) - 1:
+                self.split_child(node, idx)
+                if key_value[0] > node.keys[idx][0]:
+                    idx += 1
+            self.insert_non_full(node.children[idx], key_value)
 
     def split_child(self, parent: Node, i: int):
         """
@@ -295,9 +301,10 @@ class Btree:
         Removes a key from the B-Tree.
         If the tree becomes empty after deletion, adjust the root.
         """
-        if not self.root:
+        if key not in self.table or not self.root:
             return
 
+        self.table.pop(key)
         self.root.remove(key, self)
 
         # If the root becomes empty after removal, update root
