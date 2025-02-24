@@ -601,27 +601,32 @@ class Table:
 
         """
         consolidated_base_pages = []
-
         num_pages_per_col = int( ( len( base_record_RIDs ) + RECORDS_PER_PAGE - 1 ) / RECORDS_PER_PAGE )
         remaining_base_records = len( base_record_RIDs )
+        offsets = [[] for _ in range(self.num_columns + NUM_META_COLUMNS)]
 
         # make new pages, populate with condensed base records
         for page_idx in range( num_pages_per_col ):
-
             consolidated_base_page_set = [Page() for _ in range(self.num_columns + NUM_META_COLUMNS)]
-            # base page set = base pages of each column of a record
 
             # populate pages with condensed base records
             for base_record_idx in range( remaining_base_records ):
-                latest_record = self.get_latest_record( base_record_RIDs[ (page_idx*RECORDS_PER_PAGE) + base_record_idx ] )
-                print(latest_record)
-                # write columns to respective pages
-                for col_idx in range( len( consolidated_base_page_set ) ):
-                    consolidated_base_page_set[ col_idx ].write( latest_record.columns[ col_idx ] )
-                    # print( latest_record.columns[ col_idx ] )
-
-                if base_record_idx >= RECORDS_PER_PAGE:
-                    break
+                base_rid = base_record_RIDs[ (page_idx*RECORDS_PER_PAGE) + base_record_idx ]
+                base_record = self.get_record(base_rid)
+                latest_record = self.get_latest_record(base_rid)
+                metadata = [
+                    base_rid,
+                    base_rid,
+                    int(time() * 1000),
+                    base_record.schema_encoding
+                ]
+                consolidated_record_data = metadata + latest_record.columns
+                
+                for i, value in enumerate(consolidated_record_data):
+                    index = consolidated_base_page_set[i].write(value)
+                    offsets[i].append(index)
+                    if base_record_idx >= RECORDS_PER_PAGE:
+                        break
 
             remaining_base_records -= RECORDS_PER_PAGE
 
@@ -631,7 +636,6 @@ class Table:
             # Using _get_condensed_base_write_locations()
             # Modeling this part after create_record() function
         
-
         for consolidated_base_page_set in consolidated_base_pages:
             page_range_ids, page_ids = self._get_condensed_base_write_locations()
         """
