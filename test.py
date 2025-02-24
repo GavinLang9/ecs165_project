@@ -52,7 +52,7 @@ print("Update finished\n")
 
 print("This test has 3 updates per record -> merge occurs every 15 updates \n-> 9 Total Records -> 27 updates -> 1 merge \n-> Output should display 5 newly merged base records and then 4 unupdated base records")
 for i in range(0,number_of_records):
-    rec = grades_table.get_latest_record(i)
+    rec = grades_table.get_record(i)
     print(f'rid:{rec.rid}  key:{rec.key}  columns:{rec.columns}')
 
 print("\nThis Select output should display 5 newly merged base records and then 4 latest base records")
