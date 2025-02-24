@@ -553,55 +553,12 @@ class Table:
             No records are deleted/removed
         """
 
-        # TODO : BaseRID column in records (?)
+        # TODO : BaseRID column in records (?) -> Not necessary due to cumulative tail record implementation
         print("Merge is happening...")
 
-        base_record_RIDs = self.index.locate_range( 0, 906659770, self.key )
-
-        # NOTE: merge currently occurs every 15 updates
-        # get all base record RIDs
-
-        """
-        for base_rid in base_record_RIDs:
-            base_record = self.get_record(base_rid)
-            latest_record = self.get_latest_record(base_rid)
-            metadata = [
-                base_rid,
-                base_rid,
-                int(time() * 1000),
-                base_record.schema_encoding
-            ]
-            consolidated_record_data = metadata + latest_record.columns
-            page_range_ids, column_page_ids = self._get_base_write_locations()
-            offsets = []
-
-            # write each column to their corresponding location in disk
-            for i, (value, page_range_id, page_id) in enumerate(zip(consolidated_record_data, page_range_ids, column_page_ids)):
-                page = self.bufferpool.get_page(page_range_id, page_id)
-
-                if not page:
-                    page = Page()
-                    
-                if not page.has_capacity():
-                    page = Page()
-                    page_id = self._next_free_page()
-                    if page_id == 0:
-                        page_range_id = self._next_free_page_range()
-                    page_range_ids[i] = page_range_id
-                    column_page_ids[i] = page_id
-                    # raise IndexError("This page has no space")
-                page.tps = latest_record.rid
-
-                index = page.write(value)
-                offsets.append(index)
-                self.bufferpool.write_page(page_range_id, page_id, page)
-            
-            self.page_directory[base_rid] = (page_range_ids, column_page_ids, offsets)
-
-            #TODO Locking to protect updates to the page directory.
+        # NOTE: merge function currently occurs every 15 updates
         
-        """
-
+        base_record_RIDs = self.index.locate_range( 0, 906659770, self.key )
         consolidated_base_pages = []
         num_pages_per_col = int( ( len( base_record_RIDs ) + RECORDS_PER_PAGE - 1 ) / RECORDS_PER_PAGE )
         remaining_base_records = len( base_record_RIDs )
@@ -647,3 +604,4 @@ class Table:
                 self.page_directory[base_rid] = (page_range_ids, page_ids, ith_elements)
 
         # TODO : Get bufferpool lock (?)
+        # TODO: TPS
