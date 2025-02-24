@@ -55,7 +55,7 @@ for i in range(0,number_of_records):
     rec = grades_table.get_record(i)
     print(f'rid:{rec.rid}  key:{rec.key}  columns:{rec.columns}')
 
-print("\nThis Select output should display 5 newly merged base records and then 4 latest base records")
+print("\nThis Select output should display 5 newly merged base records and then 4 latest tail records")
 for i in range(0,number_of_records):
     #rec = grades_table.get_record(i)
     rec = query.select(i, 0, [1, 1, 1, 1, 1])[0]
