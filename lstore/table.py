@@ -556,11 +556,12 @@ class Table:
         # TODO : BaseRID column in records (?)
         print("Merge is happening...")
 
+        base_record_RIDs = self.index.locate_range( 0, 906659770, self.key )
 
         # NOTE: merge currently occurs every 15 updates
         # get all base record RIDs
-        base_record_RIDs = self.index.locate_range( 0, 906659770, self.key )
 
+        """
         for base_rid in base_record_RIDs:
             base_record = self.get_record(base_rid)
             latest_record = self.get_latest_record(base_rid)
@@ -589,17 +590,18 @@ class Table:
                     page_range_ids[i] = page_range_id
                     column_page_ids[i] = page_id
                     # raise IndexError("This page has no space")
+                page.tps = latest_record.rid
 
                 index = page.write(value)
                 offsets.append(index)
                 self.bufferpool.write_page(page_range_id, page_id, page)
             
-            # Remap page directory to consolidated record locations
             self.page_directory[base_rid] = (page_range_ids, column_page_ids, offsets)
 
             #TODO Locking to protect updates to the page directory.
-
+        
         """
+
         consolidated_base_pages = []
         num_pages_per_col = int( ( len( base_record_RIDs ) + RECORDS_PER_PAGE - 1 ) / RECORDS_PER_PAGE )
         remaining_base_records = len( base_record_RIDs )
@@ -631,17 +633,17 @@ class Table:
             remaining_base_records -= RECORDS_PER_PAGE
 
             consolidated_base_pages.append( consolidated_base_page_set )
-        
-        # TODO : Iterate through consolidated_base_pages and write each page to disk using bufferpool
-            # Using _get_condensed_base_write_locations()
-            # Modeling this part after create_record() function
-        
-        for consolidated_base_page_set in consolidated_base_pages:
-            page_range_ids, page_ids = self._get_condensed_base_write_locations()
-        """
 
+        # Write to disk
+        for page_set in consolidated_base_pages:
+            for i, (page, base_rid) in enumerate(zip(page_set, base_record_RIDs)):
+                page_range_ids, page_ids = self._get_base_write_locations()
 
+                self.bufferpool.write_page(page_range_ids[i], page_ids[i], page)
+                
+                # Remap page directory
+                # Extract the ith element from each sublist
+                ith_elements = [sublist[i] for sublist in offsets if len(sublist) > i]
+                self.page_directory[base_rid] = (page_range_ids, page_ids, ith_elements)
 
         # TODO : Get bufferpool lock (?)
-        # TODO : Remap page directory to new consolidated record locations
-            # Iterate through each new page using offsets and copying access data (page range, page id, offset) to page directory
