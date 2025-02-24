@@ -13,7 +13,7 @@ class Query:
 
     def __init__(self, table):
         self.table = table
-        self.index = Index(table)
+        self.index = table.index
         pass
 
     """
