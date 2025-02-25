@@ -570,7 +570,7 @@ class Table:
 
             # populate pages with condensed base records
             for base_record_idx in range( remaining_base_records ):
-                base_rid = base_record_RIDs[ (page_idx*RECORDS_PER_PAGE) + base_record_idx ]
+                base_rid = base_record_RIDs[ (page_idx*RECORDS_PER_PAGE) + base_record_idx ][0]
                 base_record = self.get_record(base_rid)
                 latest_record = self.get_latest_record(base_rid)
                 metadata = [
@@ -594,6 +594,7 @@ class Table:
         # Write to disk
         for page_set in consolidated_base_pages:
             for i, (page, base_rid) in enumerate(zip(page_set, base_record_RIDs)):
+                base_rid = base_rid[0]
                 page_range_ids, page_ids = self._get_base_write_locations()
 
                 self.bufferpool.write_page(page_range_ids[i], page_ids[i], page)
