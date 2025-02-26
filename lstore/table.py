@@ -268,8 +268,15 @@ class Table:
         """
         returns constructed record by getting each column value from their respective pages
         """
+    # Handle case where rid is a list
+        if isinstance(rid, list):
+            if len(rid) == 1:
+                rid = rid[0]  # Extract the single value from the list
+            else:
+                raise ValueError(f"Expected single RID value, got list: {rid}")
         
         page_range_ids, page_ids, offsets = self.page_directory[rid]
+        # Rest of the method...
         columns = []
         # if rid == 16196:
             # pdb.set_trace()
@@ -574,8 +581,19 @@ class Table:
         # TODO : BaseRID column in records (?)
         print("Merge is happening...")
 
-        base_record_RIDs = self.index.locate_range( 0, 906659770, self.key )
+        base_record_RIDs_raw = self.index.locate_range( 0, 906659770, self.key )
 
+        base_record_RIDs = []
+        for rid_item in base_record_RIDs_raw:
+            if isinstance(rid_item, list):
+                # If it's a list, extract the first element (which should be the RID)
+                if rid_item:  # Check if list is not empty
+                    base_record_RIDs.append(rid_item[0])
+            else:
+                # If it's already an integer or other primitive type
+                base_record_RIDs.append(rid_item)
+
+    # Use processed_RIDs instead of base_record_RIDs
         # NOTE: merge currently occurs every 15 updates
         # get all base record RIDs
 
@@ -640,29 +658,59 @@ class Table:
                     int(time() * 1000),
                     0
                 ]
-                consolidated_record_data = metadata + latest_record.columns
                 
-                for i, value in enumerate(consolidated_record_data):
+                for i, value in enumerate(metadata):
                     index = consolidated_base_page_set[i].write(value)
                     offsets[i].append(index)
-                    
+
+                for i, value in enumerate(latest_record.columns):
+                    col_idx = i+len(metadata)
+
+                    if isinstance(value, list):
+                        value_to_write = value[0] if value else 0
+                    else:
+                        value_to_write = 0 if value is None else value
+
+                    index = consolidated_base_page_set[col_idx].write(value_to_write)
+                    offsets[col_idx].append(index)
 
             remaining_base_records -= RECORDS_PER_PAGE
 
             consolidated_base_pages.append( consolidated_base_page_set )
 
         # Write to disk
-        for page_set in consolidated_base_pages:
-            for i, (page, base_rid) in enumerate(zip(page_set, base_record_RIDs)):
-                page_range_ids, page_ids = self._get_base_write_locations()
-
-                self.bufferpool.write_page(page_range_ids[i], page_ids[i], page)
+        for page_idx, page_set in enumerate(consolidated_base_pages):
+            start_idx = page_idx * RECORDS_PER_PAGE
+            records_in_page = min(RECORDS_PER_PAGE, len(base_record_RIDs) - start_idx)
+            
+            # Get locations once for the whole page set
+            page_range_ids, page_ids = self._get_base_write_locations()
+            
+            # Write each page to disk
+            for col_idx, page in enumerate(page_set):
+                if col_idx < len(page_range_ids) and col_idx < len(page_ids):
+                    page_range_id = page_range_ids[col_idx]
+                    page_id = page_ids[col_idx]
+                    self.bufferpool.write_page(page_range_id, page_id, page)
+            
+            # Update page directory for each record in this page
+            for record_idx in range(records_in_page):
+                base_rid = int(base_record_RIDs[start_idx + record_idx])
                 
-                # Remap page directory
-                # Extract the ith element from each sublist
-                ith_elements = [sublist[i] for sublist in offsets if len(sublist) > i]
-                self.page_directory[base_rid] = (page_range_ids, page_ids, ith_elements)
-        
+                # Get offsets for this record
+                record_offsets = []
+                for col_idx in range(len(offsets)):
+                    if start_idx + record_idx < len(offsets[col_idx]):
+                        record_offsets.append(offsets[col_idx][start_idx + record_idx])
+                    else:
+                        record_offsets.append(0)  # Default value
+                
+                # Update the page directory with tuples (not lists)
+                self.page_directory[base_rid] = (
+                    tuple(page_range_ids),
+                    tuple(page_ids),
+                    tuple(record_offsets)
+                )
         # TODO : Iterate through consolidated_base_pages and write each page to disk using bufferpool
             # Using _get_condensed_base_write_locations()
             # Modeling this part after create_record() function

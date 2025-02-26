@@ -29,18 +29,40 @@ class Page:
         if not self.has_capacity():
             raise IndexError('Page is full')
         
+        # Handle different types of values
         if type(value) != bytes:
-            value = value.to_bytes(self.record_size, byteorder='big')  # Added byteorder here
-            
+            try:
+                # If it's a list, take the first item
+                if isinstance(value, list):
+                    if value:  # If the list is not empty
+                        value = int(value[0])
+                    else:
+                        value = 0  # Default value for empty list
+                # Now convert to bytes
+                value = int(value).to_bytes(self.record_size, byteorder='big')
+            except (TypeError, ValueError, AttributeError):
+                # If conversion fails, use a default value
+                value = (0).to_bytes(self.record_size, byteorder='big')
+                
         index = self.num_records * self.record_size
         self.data[index: index + self.record_size] = value
         self.num_records += 1
         return (self.num_records - 1)
-
     def update(self, index, value):
         if type(value) != bytes:
-            value = value.to_bytes(self.record_size, byteorder='big')  # Added byteorder here
-            
+            try:
+                # If it's a list, take the first item
+                if isinstance(value, list):
+                    if value:  # If the list is not empty
+                        value = int(value[0])
+                    else:
+                        value = 0  # Default value for empty list
+                # Now convert to bytes
+                value = int(value).to_bytes(self.record_size, byteorder='big')
+            except (TypeError, ValueError, AttributeError):
+                # If conversion fails, use a default value
+                value = (0).to_bytes(self.record_size, byteorder='big')
+                
         index = index * self.record_size
         self.data[index: index + self.record_size] = value
         return True
