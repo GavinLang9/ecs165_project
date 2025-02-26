@@ -1,5 +1,6 @@
 import os
 from typing import Tuple
+from typing import Tuple, Optional
 from lstore.index import Index
 from lstore.bufferpool import BufferPool
 from lstore.disk import Disk
@@ -7,6 +8,8 @@ from lstore.page import Page
 import pdb
 from time import time
 from lstore.config import *
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 
 class Record:
@@ -43,6 +46,7 @@ class Table:
         self.bufferpool = BufferPool(BUFFER_POOL_CAPACITY, name)
         self.index = Index(self)    # Add this line for B-tree indexing
         self.rid_counter = 0
+        self.num_updates = 0
         
         # rest of your initialization code...
 
@@ -54,6 +58,10 @@ class Table:
         self.current_tail_page_range = [0] * (num_columns + NUM_META_COLUMNS)
         self.current_tail_page = [0] * (num_columns + NUM_META_COLUMNS)
         self.current_tail_offset = [0] * (num_columns + NUM_META_COLUMNS)
+
+        # Background merge thread
+        self.merge_executor = ThreadPoolExecutor(max_workers=1)
+        self.lock = threading.Lock()
         pass
 
     def create_record(self, columns):
@@ -153,7 +161,7 @@ class Table:
                 if page_id == 0:
                     page_range_id = self._next_free_page_range()
                 page_range_ids[i] = page_range_id
-                column_page_ids[i] = page_id                
+                column_page_ids[i] = page_id
                 # raise IndexError("This page has no space")
 
             index = page.write(value)
@@ -167,6 +175,11 @@ class Table:
         self.page_directory[tail_rid] = (page_range_ids, column_page_ids, offsets)
         self._update_tail_indexes(offsets)
         self._update_base_record_metadata( base_rid, tail_rid, schema_encoding )
+        
+        # Merge every 15 updates
+        self.num_updates += 1
+        if self.num_updates % 15 == 0:
+            self.merge_executor.submit(self.__merge)
 
     def get_latest_record(self, base_rid: int) -> Record:
         """
@@ -198,7 +211,7 @@ class Table:
                     columns[index] = col
             current_tail_record = next_tail_record
 
-        latest_tail_record = Record(None, None, None, None, columns)
+        latest_tail_record = Record(base_record.indirection, None, None, None, columns)
         # Using cumulative tail records
         # Fill in all None values with base record values
         latest_tail_record = self._get_cumulative_tail_record_columns(latest_tail_record, base_record)
@@ -455,7 +468,7 @@ class Table:
             result.append(1 if (arr1[i] or arr2[i]) else 0)
         return result
     
-    def _missing_updated_columns(self, schema_encoding: list[int], columns: list[int | None]) -> int:
+    def _missing_updated_columns(self, schema_encoding: list[int], columns: list[Optional[int]]) -> int:
     # Ensure both arrays have the same length
         if len(schema_encoding) != len(columns):
             raise ValueError("Arrays must have the same length.")
@@ -499,3 +512,117 @@ class Table:
         pass
  
     
+
+    def _get_condensed_base_write_locations( self ) -> Tuple[ list[int], list[int] ]:
+        """
+        Determines the page range and page index for each page of condensed base records to be written
+
+        Returns:
+            tuple: two lists
+                - List of page_range_ids for each page/column
+                - List of page_ids for each page/column
+
+        Notes:
+            Leaving current_base_page alone (might have empty space) and writing new condensed base pages at next
+            available location
+        """
+        # default: write to self.current_base_page_range
+        total_columns = self.num_columns + NUM_META_COLUMNS
+        page_range_ids = [ self.current_base_page_range ] * total_columns
+        page_ids = list( range( self._next_free_page(), self._next_free_page() + total_columns ) )
+
+        # if no overflow, all columns go to current page range
+        if not self._new_pages_will_overflow_page_range( self._next_free_page(), total_columns ):
+            # account for next available page being in the next available page range
+            if page_ids[0] == 0:
+                page_range_ids = [ self._next_free_page_range() ] * total_columns
+
+            return ( page_range_ids, page_ids )
+
+        # Else, split columns into remaining space and next page range
+        remaining_space = PAGE_RANGE_MAX_LEN - self._next_free_page()
+        overflow_columns = total_columns - remaining_space
+
+        page_range_ids = (
+                [ self.current_base_page_range ] * remaining_space +
+                [ self._next_free_page_range() ] * overflow_columns
+        )
+
+        page_ids = (
+                list( range( self._next_free_page(), PAGE_RANGE_MAX_LEN )) +
+                list( range( overflow_columns ) )
+        )
+
+        return ( page_range_ids, page_ids )
+
+
+    def __merge(self):
+        """
+        Merges most recent tail records into their respective base records
+
+        Order of Operations:
+            Frequency: Once number of updates (tail records) reaches 50% (arbitrary value) of base records
+
+            Load range of base pages into memory (outside of bufferpool)
+            Iterate through tail records, updating base records in copied base pages
+            Update page directory to point at new base pages (may need locking)
+
+
+        Notes:
+            Indirection column is unchanged
+            No records are deleted/removed
+        """
+
+        # TODO : BaseRID column in records (?) -> Not necessary due to cumulative tail record implementation
+        print("Merge is happening...")
+
+        # NOTE: merge function currently occurs every 15 updates
+        # Removed locking here
+        base_record_RIDs = self.index.locate_range(0, 906659770, self.key)
+        consolidated_base_pages = []
+        num_pages_per_col = int((len(base_record_RIDs) + RECORDS_PER_PAGE - 1) / RECORDS_PER_PAGE)
+        remaining_base_records = len(base_record_RIDs)
+        offsets = [[] for _ in range(self.num_columns + NUM_META_COLUMNS)]
+
+        # make new pages, populate with condensed base records
+        for page_idx in range(num_pages_per_col):
+            consolidated_base_page_set = [Page() for _ in range(self.num_columns + NUM_META_COLUMNS)]
+
+            # populate pages with condensed base records
+            for base_record_idx in range(remaining_base_records):
+                base_rid = base_record_RIDs[(page_idx * RECORDS_PER_PAGE) + base_record_idx][0]
+                base_record = self.get_record(base_rid)
+                latest_record = self.get_latest_record(base_rid)
+                metadata = [
+                    base_rid,
+                    base_rid,
+                    int(time() * 1000),
+                    base_record.schema_encoding
+                ]
+                consolidated_record_data = metadata + latest_record.columns
+                
+                for i, value in enumerate(consolidated_record_data):
+                    index = consolidated_base_page_set[i].write(value)
+                    offsets[i].append(index)
+                    if base_record_idx >= RECORDS_PER_PAGE:
+                        break
+
+            remaining_base_records -= RECORDS_PER_PAGE
+
+            consolidated_base_pages.append(consolidated_base_page_set)
+
+        # Write to disk
+        for page_set in consolidated_base_pages:
+            for i, (page, base_rid) in enumerate(zip(page_set, base_record_RIDs)):
+                base_rid = base_rid[0]
+                page_range_ids, page_ids = self._get_base_write_locations()
+
+                self.bufferpool.write_page(page_range_ids[i], page_ids[i], page)
+                
+                # Remap page directory
+                # Extract the ith element from each sublist
+                ith_elements = [sublist[i] for sublist in offsets if len(sublist) > i]
+                self.page_directory[base_rid] = (page_range_ids, page_ids, ith_elements)
+
+        # TODO : Get bufferpool lock (?)
+        # TODO: TPS

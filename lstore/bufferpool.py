@@ -3,6 +3,8 @@ from lstore.disk import Disk
 from lstore.page import Page
 from lstore.config import *
 import os
+import threading
+
 
 class BufferPool:
     """
@@ -87,10 +89,12 @@ class BufferPool:
         key = None
         page = None
         
+        items = list(self.pool.items())
+
         # Get least recently used page
         # Try to find first unpinned page
-        for k, p in self.pool.items():
-            if self.pin_count[k] == 0:
+        for k, p in items:
+            if k in self.pin_count and self.pin_count[k] == 0:
                 key, page = k, p
                 break
         else:
@@ -104,7 +108,7 @@ class BufferPool:
             self.write_to_disk(page_range_id, page_id, page)
             self.dirty_pages.remove(key)
 
-        self.pool.pop(key)
+        self.pool.pop(key,None)
 
     def mark_dirty(self, page_range_id: int, page_id: int):
         """
