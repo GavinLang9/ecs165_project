@@ -1,6 +1,7 @@
 from collections import OrderedDict
 from lstore.disk import Disk
 from lstore.page import Page
+from lstore.config import *
 import os
 import threading
 
@@ -9,12 +10,13 @@ class BufferPool:
     """
     The BufferPool manages loading and evicting pages from memory using LRU policy
     """
-    def __init__(self, capacity: int, disk: Disk):
+    def __init__(self, capacity: int, name: str):
+        self.path = ''
+        self.table_name = name
         self.capacity = capacity  # Number of pages that can be held in memory
         self.pool = OrderedDict()  # Maps (page_range_id, page_id) -> Page
         self.dirty_pages = set()   # Tracks which pages have been modified
         self.pin_count = {}
-        self.disk = disk
         
     def __str__(self):
         s = ''
@@ -49,7 +51,7 @@ class BufferPool:
         
         try:
             # Load page from disk
-            page = self.disk.read(page_range_id, page_id)
+            page = self.read_from_disk(page_range_id, page_id)
             
             # If buffer pool is at capacity, evict least recently used page
             if self._is_full():
@@ -75,7 +77,6 @@ class BufferPool:
 
         self.pool[key] = page
         self.mark_dirty(page_range_id, page_id)
-        self.force_page(page_range_id, page_id)
 
     def evict_page(self):
         """
@@ -101,10 +102,11 @@ class BufferPool:
             raise Exception("All pages are pinned, cannot evict")
                     
         # If page was modified, write back to disk
-        if key in self.pool:
-            if key in self.dirty_pages:
-                self.disk.write(page)
-                self.dirty_pages.remove(key)
+        if key in self.dirty_pages:
+            page_range_id = key[0]
+            page_id = key[1]
+            self.write_to_disk(page_range_id, page_id, page)
+            self.dirty_pages.remove(key)
 
         self.pool.pop(key,None)
 
@@ -123,7 +125,9 @@ class BufferPool:
         """
         for key, page in self.pool.items():
             if key in self.dirty_pages:
-                self.disk.write(page)
+                page_range_id = key[0]
+                page_id = key[1]
+                self.write_to_disk(page_range_id, page_id, page)
         self.dirty_pages.clear()
 
     def force_page(self, page_range_id, page_id):
@@ -132,8 +136,52 @@ class BufferPool:
         """
         key = (page_range_id, page_id)
         if key in self.pool and key in self.dirty_pages:
-            self.disk.write(page_range_id, page_id, self.pool[key])
+            self.write_to_disk(page_range_id, page_id, self.pool[key])
             self.dirty_pages.remove(key)
 
     def _is_full(self):
         return len(self.pool) >= self.capacity
+    
+    def read_from_disk(self, page_range_id: int, page_id: int) -> Page:
+        """
+        constructs page from bytes on disk.  If no page has been created, returns none
+        """
+        start_index = page_range_id * PAGE_RANGE_MAX_LEN * (PAGE_SIZE + 16) + page_id * (PAGE_SIZE + 16)
+        disk_path = os.path.join(self.path, f'{self.table_name}.bin')
+        if not os.path.exists(disk_path):
+            open(disk_path, 'x')
+        if os.path.getsize(disk_path) <= start_index:
+            return None
+        try:
+            with open(disk_path, 'rb') as disk:
+                disk.seek(start_index)
+                bytes = disk.read(PAGE_SIZE + 16)
+                num_records = int.from_bytes(bytes[0:8], byteorder='big')
+                record_size = int.from_bytes(bytes[8:16], byteorder='big')
+                page = Page(record_size)
+                page.data = bytes[16:]
+                page.num_records = num_records
+                return page
+        except:
+            return None
+
+    def write_to_disk(self, page_range_id: int, page_id, page: int):
+        """
+        writes a page to a specific offset in disk
+        """
+        disk_path = os.path.join(self.path, f'{self.table_name}.bin')
+        start_index = page_range_id * PAGE_RANGE_MAX_LEN * (PAGE_SIZE + 16) + page_id * (PAGE_SIZE + 16)
+        num_records = page.num_records
+        record_size = page.record_size
+
+        page_data = num_records.to_bytes(8, byteorder='big') + \
+            record_size.to_bytes(8, byteorder='big') + \
+            page.data
+        
+        if not os.path.exists(disk_path):
+            open(disk_path, 'x')
+
+        with open(disk_path, 'rb+') as disk:
+            disk.seek(start_index)
+            disk.write(page_data)
+            

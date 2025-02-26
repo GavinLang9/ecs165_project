@@ -1,3 +1,5 @@
+import os
+from typing import Tuple
 from typing import Tuple, Optional
 from lstore.index import Index
 from lstore.bufferpool import BufferPool
@@ -5,18 +7,10 @@ from lstore.disk import Disk
 from lstore.page import Page
 import pdb
 from time import time
+from lstore.config import *
 from concurrent.futures import ThreadPoolExecutor
 import threading
 
-INDIRECTION_COLUMN = 0
-RID_COLUMN = 1
-TIMESTAMP_COLUMN = 2
-SCHEMA_ENCODING_COLUMN = 3
-
-BUFFER_POOL_CAPACITY = 16
-RECORDS_PER_PAGE = 512
-PAGE_RANGE_MAX_LEN = 64
-NUM_META_COLUMNS = 4
 
 class Record:
     def __init__(self, rid, indirection, schema_encoding, key, columns):
@@ -43,12 +37,13 @@ class Table:
     :param key: int             #Index of table key in columns
     """
     def __init__(self, name, num_columns, key):
+        self.path = ''
         self.name = name
         self.key = key
         self.num_columns = num_columns
         self.page_directory = {}    # RID -> ([page_range_ids], [page_ids], [offsets])
-        self.disk = Disk()
-        self.bufferpool = BufferPool(BUFFER_POOL_CAPACITY, self.disk)
+        # self.disk = Disk()
+        self.bufferpool = BufferPool(BUFFER_POOL_CAPACITY, name)
         self.index = Index(self)    # Add this line for B-tree indexing
         self.rid_counter = 0
         self.num_updates = 0
@@ -130,7 +125,6 @@ class Table:
                 [key, col 1, None, col 3, ...]
         """
         # create meta data columns
-        # pdb.set_trace()
         if len(columns) != self.num_columns:
             raise ValueError("Invalid number of columns")
         base_record = self.get_record(base_rid)
@@ -149,10 +143,8 @@ class Table:
         ]
 
         record_data = metadata + list( columns )
-
         # returns a tuple of lists that hold page range and page indexes for each column
         page_range_ids, column_page_ids = self._get_tail_write_locations(record_data)
-
         offsets = [None] * len(record_data)
         # write each column to their corresponding location in disk
         for i,(value, page_range_id, page_id) in enumerate(zip(record_data, page_range_ids, column_page_ids)):
@@ -180,7 +172,6 @@ class Table:
             self.current_tail_page_range[i] = page_range_id
             self.current_tail_page[i] = page_id
         # Update table metadata
-        # pdb.set_trace()
         self.page_directory[tail_rid] = (page_range_ids, column_page_ids, offsets)
         self._update_tail_indexes(offsets)
         self._update_base_record_metadata( base_rid, tail_rid, schema_encoding )
@@ -276,13 +267,11 @@ class Table:
         page_range_ids, page_ids, offsets = self.page_directory[rid]
         columns = []
         # if rid == 16196:
-            # pdb.set_trace()
         for page_range_id, page_id, offset in zip(page_range_ids, page_ids, offsets):
             if page_range_id == None or page_id == None or offset == None:
                 columns.append(None)
                 continue
             # if page_range_id == 20695 and page_id == 58 and offset == 0:
-            #     pdb.set_trace()
             page = self.bufferpool.get_page(page_range_id, page_id)
             if page is None:
                 columns.append(None)
@@ -366,7 +355,7 @@ class Table:
                 if self.current_tail_offset[i] == 0:
                     next_free_page = (self._next_free_page() + offset) % PAGE_RANGE_MAX_LEN
                     offset += 1
-                if next_free_page == 0 or next_free_page_range == 0:
+                if next_free_page == 0 or (next_free_page_range == 0 and next_free_page == 0):
                     next_free_page_range = self._next_free_page_range()
                     self.current_tail_page_range[i:] = [next_free_page_range] * (len(columns) - i)
                 page_range_ids[i] = next_free_page_range
@@ -482,7 +471,6 @@ class Table:
     def _missing_updated_columns(self, schema_encoding: list[int], columns: list[Optional[int]]) -> int:
     # Ensure both arrays have the same length
         if len(schema_encoding) != len(columns):
-            pdb.set_trace()
             raise ValueError("Arrays must have the same length.")
 
         # Count mismatches where schema_encoding is 1, but the columns array has None
@@ -496,6 +484,34 @@ class Table:
     def _page_is_full(self, current_offset):
         return current_offset % (RECORDS_PER_PAGE - 1) == 0
 
+    def _print_disk(self):
+        disk_path = os.path.join(self.path, DISK_DIRECTORY_PATH, f'{self.name}.bin')
+        num_bytes = os.path.getsize(disk_path)
+
+        page_range_id = 0
+        page_id = 0
+
+        current_offset = page_range_id * PAGE_RANGE_MAX_LEN * (PAGE_SIZE +16) + page_id * (PAGE_SIZE + 16)
+        with open(disk_path, 'rb') as disk:
+            bytes = disk.read(num_bytes)
+            while current_offset < num_bytes:
+                print(f'page {page_id}')
+                print(f'num_records = {int.from_bytes(bytes[current_offset: current_offset + 8])}\n')
+                page = Page()
+                page.num_records = int.from_bytes(bytes[current_offset: current_offset + 8])
+                page.data = bytes[current_offset + 16 : current_offset + PAGE_SIZE + 16]
+                print(f'{page}\n')
+                
+                page_id += 1 % PAGE_RANGE_MAX_LEN
+                if page_id == 0:
+                    page_range_id += 1
+                current_offset = page_range_id * PAGE_RANGE_MAX_LEN * (PAGE_SIZE +16) + page_id * (PAGE_SIZE + 16)
+    
+    def __merge(self):
+        print("merge is happening")
+        pass
+ 
+    
 
     def _get_condensed_base_write_locations( self ) -> Tuple[ list[int], list[int] ]:
         """
