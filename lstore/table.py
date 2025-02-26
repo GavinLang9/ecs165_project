@@ -579,8 +579,6 @@ class Table:
         """
 
         # TODO : BaseRID column in records (?)
-        print("Merge is happening...")
-
         base_record_RIDs_raw = self.index.locate_range( 0, 906659770, self.key )
 
         base_record_RIDs = []
