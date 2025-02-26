@@ -2,6 +2,8 @@ from collections import OrderedDict
 from lstore.disk import Disk
 from lstore.page import Page
 import os
+import threading
+
 
 class BufferPool:
     """
@@ -86,10 +88,12 @@ class BufferPool:
         key = None
         page = None
         
+        items = list(self.pool.items())
+
         # Get least recently used page
         # Try to find first unpinned page
-        for k, p in self.pool.items():
-            if self.pin_count[k] == 0:
+        for k, p in items:
+            if k in self.pin_count and self.pin_count[k] == 0:
                 key, page = k, p
                 break
         else:
@@ -97,11 +101,12 @@ class BufferPool:
             raise Exception("All pages are pinned, cannot evict")
                     
         # If page was modified, write back to disk
-        if key in self.dirty_pages:
-            self.disk.write(page)
-            self.dirty_pages.remove(key)
+        if key in self.pool:
+            if key in self.dirty_pages:
+                self.disk.write(page)
+                self.dirty_pages.remove(key)
 
-        self.pool.pop(key)
+        self.pool.pop(key,None)
 
     def mark_dirty(self, page_range_id: int, page_id: int):
         """
