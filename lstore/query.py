@@ -175,14 +175,18 @@ class Query:
         # Fail if mismatching number of columns
         if len(columns) != self.table.num_columns:
             return False
-
+    
         primary_key_column_idx = self.table.key
+
+        if columns[ primary_key_column_idx ] is not None:
+            return False
+
         # Fail if record does not exist
         rids = self.index.locate( primary_key_column_idx, primary_key )
 
         if rids == None:
             return False
-        
+          
         # Update record in table and index
         self.table.update_record(rids[0], list(columns))
         return True
