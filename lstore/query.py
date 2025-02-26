@@ -2,7 +2,6 @@ import pdb
 from lstore.table import Table, Record
 from lstore.index import Index
 
-
 class Query:
     """
     # Creates a Query object that can perform different queries on the specified table 
@@ -13,7 +12,7 @@ class Query:
 
     def __init__(self, table):
         self.table = table
-        self.index = Index(table)
+        self.index = table.index
         pass
 
     """
