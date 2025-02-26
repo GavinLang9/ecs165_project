@@ -1,12 +1,12 @@
-import sys
 from typing import Tuple, Optional
 from lstore.index import Index
 from lstore.bufferpool import BufferPool
 from lstore.disk import Disk
 from lstore.page import Page
 import pdb
-import math
 from time import time
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 INDIRECTION_COLUMN = 0
 RID_COLUMN = 1
@@ -63,6 +63,10 @@ class Table:
         self.current_tail_page_range = [0] * (num_columns + NUM_META_COLUMNS)
         self.current_tail_page = [0] * (num_columns + NUM_META_COLUMNS)
         self.current_tail_offset = [0] * (num_columns + NUM_META_COLUMNS)
+
+        # Background merge thread
+        self.merge_executor = ThreadPoolExecutor(max_workers=1)
+        self.lock = threading.Lock()
         pass
 
     def create_record(self, columns):
@@ -184,7 +188,7 @@ class Table:
         # Merge every 15 updates
         self.num_updates += 1
         if self.num_updates % 15 == 0:
-            self.__merge()
+            self.merge_executor.submit(self.__merge)
 
     def get_latest_record(self, base_rid: int) -> Record:
         """
@@ -557,52 +561,52 @@ class Table:
         print("Merge is happening...")
 
         # NOTE: merge function currently occurs every 15 updates
-        
-        base_record_RIDs = self.index.locate_range( 0, 906659770, self.key )
-        consolidated_base_pages = []
-        num_pages_per_col = int( ( len( base_record_RIDs ) + RECORDS_PER_PAGE - 1 ) / RECORDS_PER_PAGE )
-        remaining_base_records = len( base_record_RIDs )
-        offsets = [[] for _ in range(self.num_columns + NUM_META_COLUMNS)]
+        with self.lock:
+            base_record_RIDs = self.index.locate_range( 0, 906659770, self.key )
+            consolidated_base_pages = []
+            num_pages_per_col = int( ( len( base_record_RIDs ) + RECORDS_PER_PAGE - 1 ) / RECORDS_PER_PAGE )
+            remaining_base_records = len( base_record_RIDs )
+            offsets = [[] for _ in range(self.num_columns + NUM_META_COLUMNS)]
 
-        # make new pages, populate with condensed base records
-        for page_idx in range( num_pages_per_col ):
-            consolidated_base_page_set = [Page() for _ in range(self.num_columns + NUM_META_COLUMNS)]
+            # make new pages, populate with condensed base records
+            for page_idx in range( num_pages_per_col ):
+                consolidated_base_page_set = [Page() for _ in range(self.num_columns + NUM_META_COLUMNS)]
 
-            # populate pages with condensed base records
-            for base_record_idx in range( remaining_base_records ):
-                base_rid = base_record_RIDs[ (page_idx*RECORDS_PER_PAGE) + base_record_idx ][0]
-                base_record = self.get_record(base_rid)
-                latest_record = self.get_latest_record(base_rid)
-                metadata = [
-                    base_rid,
-                    base_rid,
-                    int(time() * 1000),
-                    base_record.schema_encoding
-                ]
-                consolidated_record_data = metadata + latest_record.columns
-                
-                for i, value in enumerate(consolidated_record_data):
-                    index = consolidated_base_page_set[i].write(value)
-                    offsets[i].append(index)
-                    if base_record_idx >= RECORDS_PER_PAGE:
-                        break
+                # populate pages with condensed base records
+                for base_record_idx in range( remaining_base_records ):
+                    base_rid = base_record_RIDs[ (page_idx*RECORDS_PER_PAGE) + base_record_idx ][0]
+                    base_record = self.get_record(base_rid)
+                    latest_record = self.get_latest_record(base_rid)
+                    metadata = [
+                        base_rid,
+                        base_rid,
+                        int(time() * 1000),
+                        base_record.schema_encoding
+                    ]
+                    consolidated_record_data = metadata + latest_record.columns
+                    
+                    for i, value in enumerate(consolidated_record_data):
+                        index = consolidated_base_page_set[i].write(value)
+                        offsets[i].append(index)
+                        if base_record_idx >= RECORDS_PER_PAGE:
+                            break
 
-            remaining_base_records -= RECORDS_PER_PAGE
+                remaining_base_records -= RECORDS_PER_PAGE
 
-            consolidated_base_pages.append( consolidated_base_page_set )
+                consolidated_base_pages.append( consolidated_base_page_set )
 
-        # Write to disk
-        for page_set in consolidated_base_pages:
-            for i, (page, base_rid) in enumerate(zip(page_set, base_record_RIDs)):
-                base_rid = base_rid[0]
-                page_range_ids, page_ids = self._get_base_write_locations()
+            # Write to disk
+            for page_set in consolidated_base_pages:
+                for i, (page, base_rid) in enumerate(zip(page_set, base_record_RIDs)):
+                    base_rid = base_rid[0]
+                    page_range_ids, page_ids = self._get_base_write_locations()
 
-                self.bufferpool.write_page(page_range_ids[i], page_ids[i], page)
-                
-                # Remap page directory
-                # Extract the ith element from each sublist
-                ith_elements = [sublist[i] for sublist in offsets if len(sublist) > i]
-                self.page_directory[base_rid] = (page_range_ids, page_ids, ith_elements)
+                    self.bufferpool.write_page(page_range_ids[i], page_ids[i], page)
+                    
+                    # Remap page directory
+                    # Extract the ith element from each sublist
+                    ith_elements = [sublist[i] for sublist in offsets if len(sublist) > i]
+                    self.page_directory[base_rid] = (page_range_ids, page_ids, ith_elements)
 
-        # TODO : Get bufferpool lock (?)
-        # TODO: TPS
+            # TODO : Get bufferpool lock (?)
+            # TODO: TPS
