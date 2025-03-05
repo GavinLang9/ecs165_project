@@ -1,4 +1,7 @@
 
+import pdb
+
+
 PAGE_SIZE = 4096
 
 class Page:
@@ -6,6 +9,7 @@ class Page:
         self.num_records = 0
         self.record_size = record_size
         self.data = bytearray(PAGE_SIZE)
+        self.page_type = ''
 
     def __str__(self):
         s = ''
@@ -28,11 +32,11 @@ class Page:
     def write(self, value) -> int:
         if not self.has_capacity():
             raise IndexError('Page is full')
-        
         if type(value) != bytes:
             value = value.to_bytes(self.record_size, byteorder='big')  # Added byteorder here
             
         index = self.num_records * self.record_size
+        self.data = bytearray(self.data)
         self.data[index: index + self.record_size] = value
         self.num_records += 1
         return (self.num_records - 1)
@@ -42,5 +46,6 @@ class Page:
             value = value.to_bytes(self.record_size, byteorder='big')  # Added byteorder here
             
         index = index * self.record_size
+        self.data = bytearray(self.data)
         self.data[index: index + self.record_size] = value
         return True

@@ -13,7 +13,8 @@ class Query:
 
     def __init__(self, table):
         self.table = table
-        self.index = Index(table)
+        self.index = self._deserialize_index(table)
+
         pass
 
     """
@@ -179,8 +180,8 @@ class Query:
     
         primary_key_column_idx = self.table.key
 
-        if columns[ primary_key_column_idx ] is not None:
-            return False
+        # if columns[ primary_key_column_idx ] is not None:
+        #     return False
 
         # Fail if record does not exist
         rids = self.index.locate( primary_key_column_idx, primary_key )
@@ -282,3 +283,8 @@ class Query:
             u = self.update(key, *updated_columns)
             return u
         return False
+
+    def _deserialize_index(self, table):
+        if table.index == None:
+            return Index(table)
+        return table.index
