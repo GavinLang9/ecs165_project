@@ -206,7 +206,7 @@ class Query:
         self.table.update_record(rids[0], list(columns))
         
         # update primary key
-        if columns[ primary_key_column_idx ] is not None:
+        if columns[ primary_key_column_idx ] is not None and columns[ primary_key_column_idx ] != primary_key:
             self.table.index.indices[primary_key_column_idx].remove(primary_key)
         
         return True
