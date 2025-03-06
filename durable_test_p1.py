@@ -5,7 +5,7 @@ from lstore.query import Query
 db = Database()
 db.open('./ECS165')
 table = db.create_table('test', 5, 0)
-num = 5
+num = 1000
 
 # print(table.page_directory)
 query = Query(table)

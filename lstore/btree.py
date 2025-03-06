@@ -1,5 +1,6 @@
 import pdb
 from typing import List, Tuple
+import struct
 
 """
 # Data Structure: Node
@@ -9,7 +10,7 @@ from typing import List, Tuple
 #  children: list - List of children nodes (number of children is equal to number of keys + 1)
 """
 class Node:
-    def __init__(self, is_leaf: bool, t: int):
+    def __init__(self, is_leaf: bool, t: int=3):
         self.is_leaf: bool = is_leaf
         self.t: int = t
         self.keys: List[Tuple] = []
@@ -29,6 +30,7 @@ class Node:
         i = 0
         while i < len(self.keys) and key > self.keys[i][0]:
             i += 1
+
         
         # Found the key in the node then return the value
         if i < len(self.keys) and key == self.keys[i][0]:
@@ -213,6 +215,111 @@ class Btree:
             self.root.debug_display()
         else:
             raise ValueError("B-Tree is empty")
+        
+    def serialize(self):
+        """
+        Serializes the entire B-Tree structure into a binary format.
+        """
+        serialized_data = b""
+        # First, serialize the tree degree
+        serialized_data += struct.pack("I", self.t)
+        
+        # Use a level-order traversal to serialize the tree
+        node_queue = [self.root]
+        node_index = 0
+        serialized_nodes = []
+        node_children_indices = []
+        
+        while node_index < len(node_queue):
+            node = node_queue[node_index]
+            
+            # Store children indices for this node
+            children_indices = []
+            if not node.is_leaf:
+                for child in node.children:
+                    children_indices.append(len(node_queue))
+                    node_queue.append(child)
+            
+            node_children_indices.append(children_indices)
+            
+            # Serialize this node's data
+            node_data = struct.pack("?", node.is_leaf)  # is_leaf flag
+            node_data += struct.pack("I", len(node.keys))  # number of keys
+            
+            # Serialize keys
+            for key in node.keys:
+                k, v = key
+                node_data += struct.pack("ii", k, v[0])
+                
+            serialized_nodes.append(node_data)
+            node_index += 1
+        
+        # Now serialize the number of nodes
+        serialized_data += struct.pack("I", len(serialized_nodes))
+        
+        # Serialize each node's data and its children indices
+        for i, (node_data, children) in enumerate(zip(serialized_nodes, node_children_indices)):
+            serialized_data += node_data
+            serialized_data += struct.pack("I", len(children))  # number of children
+            for child_idx in children:
+                serialized_data += struct.pack("I", child_idx)  # child index
+        
+        return serialized_data
+
+    @staticmethod
+    def deserialize(binary_data):
+        """
+        Reconstructs a B-Tree from binary data.
+        """
+        offset = 0
+        
+        # Read tree degree
+        t = struct.unpack_from("I", binary_data, offset)[0]
+        offset += struct.calcsize("I")
+        
+        # Read number of nodes
+        num_nodes = struct.unpack_from("I", binary_data, offset)[0]
+        offset += struct.calcsize("I")
+        
+        # Create empty nodes
+        nodes = [Node(False) for _ in range(num_nodes)]
+        
+        # Read node data and build connections
+        for i in range(num_nodes):
+            # Read is_leaf
+            is_leaf = struct.unpack_from("?", binary_data, offset)[0]
+            offset += struct.calcsize("?")
+            nodes[i].is_leaf = is_leaf
+            
+            # Read number of keys
+            num_keys = struct.unpack_from("I", binary_data, offset)[0]
+            offset += struct.calcsize("I")
+            
+            # Read keys
+            keys = []
+            for _ in range(num_keys):
+                k, v_int = struct.unpack_from("ii", binary_data, offset)
+                offset += struct.calcsize("ii")
+                keys.append((k, [v_int]))
+            nodes[i].keys = keys
+            
+            # Read children indices
+            num_children = struct.unpack_from("I", binary_data, offset)[0]
+            offset += struct.calcsize("I")
+            
+            children_indices = []
+            for _ in range(num_children):
+                child_idx = struct.unpack_from("I", binary_data, offset)[0]
+                offset += struct.calcsize("I")
+                children_indices.append(child_idx)
+            
+            # Connect children
+            nodes[i].children = [nodes[idx] for idx in children_indices]
+        
+        # Create and return the tree
+        tree = Btree(t=3)  # Use the correct degree
+        tree.root = nodes[0] if nodes else None
+        return tree
 
     def get(self, key: int) -> int:
         """

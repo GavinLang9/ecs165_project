@@ -12,9 +12,8 @@ class Query:
     """
 
     def __init__(self, table):
-        self.table = table
+        self.table: Table = table
         self.index = self._deserialize_index(table)
-
         pass
 
     """
@@ -25,7 +24,17 @@ class Query:
     """
 
     def delete(self, primary_key):
-        pass
+        primary_key_column_idx = self.table.key
+        
+        # Fail if record does not exist
+        rids = self.index.locate( primary_key_column_idx, primary_key )
+
+        if rids == None:
+            return False
+          
+        # Update record in table and index
+        self.table.delete_record(rids[0])
+        return True
 
     """
     # Insert a record with specified columns
@@ -100,6 +109,10 @@ class Query:
 
         # get all RIDs of records that match search criteria
         rid_list = self.index.locate(search_key_index, search_key)
+
+        if rid_list is None:
+            return []
+        
         # get all Record objects from rid_list
         record_list = []
         for rid in rid_list:
@@ -108,7 +121,7 @@ class Query:
         # apply projected_columns_index
         final_records = []
         for record in record_list:
-            tmp_columns = tuple( column for column, include in zip( list(record.columns), projected_columns_index ) if include == 1 )
+            tmp_columns = list( column for column, include in zip( list(record.columns), projected_columns_index ) if include == 1 )
             final_records.append( Record( record.rid, record.indirection, record.schema_encoding, record.key, tmp_columns ) )
 
         return final_records
@@ -180,9 +193,10 @@ class Query:
     
         primary_key_column_idx = self.table.key
 
-        # if columns[ primary_key_column_idx ] is not None:
-        #     return False
-
+        # update primary key
+        if columns[ primary_key_column_idx ] is not None:
+            pass
+        
         # Fail if record does not exist
         rids = self.index.locate( primary_key_column_idx, primary_key )
 

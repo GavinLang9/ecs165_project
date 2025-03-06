@@ -7,6 +7,7 @@ from lstore.page import Page
 import pdb
 from time import time
 from lstore.config import *
+import struct
 
 
 class Record:
@@ -58,6 +59,139 @@ class Table:
         self.latest_page_range = 0
         self.latest_page = 0
         pass
+
+    def serialize(self):
+        serialized_data = b""
+
+        # Serialize basic attributes
+        serialized_data += struct.pack("I", len(self.name))  # Name length
+        serialized_data += self.name.encode("utf-8")  # Table name
+        serialized_data += struct.pack("I", self.num_columns)  # Number of columns
+        serialized_data += struct.pack("I", self.key)  # Key index
+        serialized_data += struct.pack("I", self.rid_counter)  # RID counter
+
+        # Serialize page directory (RID -> [page_range_ids], [page_ids], [offsets])
+        serialized_data += struct.pack("I", len(self.page_directory))  # Number of entries in the directory
+        for rid, (page_range_ids, page_ids, offsets) in self.page_directory.items():
+            page_range_ids = [page_range_id if page_range_id is not None else 4294967295 for page_range_id in page_range_ids]
+            page_ids = [page_id if page_id is not None else 4294967295 for page_id in page_ids]
+            offsets = [offset if offset is not None else 4294967295 for offset in offsets]
+    
+
+            # Serialize the data
+            serialized_data += struct.pack("I", rid)  # RID
+            serialized_data += struct.pack("I", len(page_range_ids))  # Number of page_range_ids
+            serialized_data += b"".join(struct.pack("I", page_range_id) for page_range_id in page_range_ids)
+            serialized_data += struct.pack("I", len(page_ids))  # Number of page_ids
+            serialized_data += b"".join(struct.pack("I", page_id) for page_id in page_ids)
+            serialized_data += struct.pack("I", len(offsets))  # Number of offsets
+            serialized_data += b"".join(struct.pack("I", offset) for offset in offsets)
+
+        # Serialize base page data
+        serialized_data += struct.pack("I", self.current_base_page_range)
+        serialized_data += struct.pack("I", self.current_base_page)
+        serialized_data += struct.pack("I", self.current_base_offset)
+
+        # Serialize tail page data
+        serialized_data += b"".join(struct.pack("I", item) for item in self.current_tail_page_range)
+        serialized_data += b"".join(struct.pack("I", item) for item in self.current_tail_page)
+        serialized_data += b"".join(struct.pack("I", item) for item in self.current_tail_offset)
+
+        # Serialize latest page data
+        serialized_data += struct.pack("I", self.latest_page_range)
+        serialized_data += struct.pack("I", self.latest_page)
+
+        serialized_data += self.index.serialize()  
+
+        return serialized_data
+    
+
+    @staticmethod
+    def deserialize(serialized_data, path):
+        """
+        Deserialize binary data into a Table object.
+        """
+        index = 0
+        name_len = struct.unpack("I", serialized_data[index:index + 4])[0]
+        index += 4
+        name = serialized_data[index:index + name_len].decode("utf-8")
+        index += name_len
+        num_columns = struct.unpack("I", serialized_data[index:index + 4])[0]
+        index += 4
+        key = struct.unpack("I", serialized_data[index:index + 4])[0]
+        index += 4
+        rid_counter = struct.unpack("I", serialized_data[index:index + 4])[0]
+        index += 4
+
+        page_directory_len = struct.unpack("I", serialized_data[index:index + 4])[0]
+        index += 4
+        page_directory = {}
+        for _ in range(page_directory_len):
+            rid = struct.unpack("I", serialized_data[index:index + 4])[0]
+
+            index += 4
+            page_range_ids_len = struct.unpack("I", serialized_data[index:index + 4])[0]
+
+            index += 4
+            page_range_ids = [struct.unpack("I", serialized_data[index + i:index + i + 4])[0] for i in range(0, page_range_ids_len * 4, 4)]
+            page_range_ids = [page_range_id if page_range_id != 4294967295 else None for page_range_id in page_range_ids]
+
+            index += page_range_ids_len * 4
+            page_ids_len = struct.unpack("I", serialized_data[index:index + 4])[0]
+
+            index += 4
+            page_ids = [struct.unpack("I", serialized_data[index + i:index + i + 4])[0] for i in range(0, page_ids_len * 4, 4)]
+            page_ids = [page_id if page_id != 4294967295 else None for page_id in page_ids]
+
+            index += page_ids_len * 4
+            offsets_len = struct.unpack("I", serialized_data[index:index + 4])[0]
+
+            index += 4
+            offsets = [struct.unpack("I", serialized_data[index + i:index + i + 4])[0] for i in range(0, offsets_len * 4, 4)]
+            offsets = [offset if offset != 4294967295 else None for offset in offsets]
+
+            index += offsets_len * 4
+            page_directory[rid] = (page_range_ids, page_ids, offsets)
+
+        current_base_page_range = struct.unpack("I", serialized_data[index:index + 4])[0]
+        index += 4
+        current_base_page = struct.unpack("I", serialized_data[index:index + 4])[0]
+        index += 4
+        current_base_offset = struct.unpack("I", serialized_data[index:index + 4])[0]
+        index += 4
+
+        current_tail_page_range = [struct.unpack("I", serialized_data[index + i:index + i + 4])[0] for i in range(0, (num_columns + NUM_META_COLUMNS) * 4, 4)]
+        index += (num_columns + NUM_META_COLUMNS) * 4
+        current_tail_page = [struct.unpack("I", serialized_data[index + i:index + i + 4])[0] for i in range(0, (num_columns + NUM_META_COLUMNS) * 4, 4)]
+        index += (num_columns + NUM_META_COLUMNS) * 4
+        current_tail_offset = [struct.unpack("I", serialized_data[index + i:index + i + 4])[0] for i in range(0, (num_columns + NUM_META_COLUMNS) * 4, 4)]
+        index += (num_columns + NUM_META_COLUMNS) * 4
+
+        latest_page_range = struct.unpack("I", serialized_data[index:index + 4])[0]
+        index += 4
+        latest_page = struct.unpack("I", serialized_data[index:index + 4])[0]
+        index += 4
+
+
+        # Deserialize the B-tree index
+        index_data = serialized_data[index:]
+
+        # Return a new Table object with the deserialized data
+        table = Table(name, num_columns, key, path)
+        table.page_directory = page_directory
+        table.rid_counter = rid_counter
+        table.current_base_page_range = current_base_page_range
+        table.current_base_page = current_base_page
+        table.current_base_offset = current_base_offset
+        table.current_tail_page_range = current_tail_page_range
+        table.current_tail_page = current_tail_page
+        table.current_tail_offset = current_tail_offset
+        table.latest_page_range = latest_page_range
+        table.latest_page = latest_page
+        index_obj = Index.deserialize(index_data, table)
+        table.index = index_obj  # Assign the deserialized B-tree index
+
+        return table
 
     def create_record(self, columns):
         """
@@ -536,14 +670,10 @@ class Table:
         with open(disk_path, 'rb') as disk:
             bytes = disk.read(num_bytes)
             while current_offset < num_bytes:
-                print(f'page {page_id}')
-                print(f'num_records = {int.from_bytes(bytes[current_offset: current_offset + 8], byteorder="big")}\n')
                 page = Page()
                 page.num_records = int.from_bytes(bytes[current_offset: current_offset + 8], byteorder='big')
                 page.data = bytes[current_offset + 16 : current_offset + PAGE_SIZE + 16]
                 # print(f'page type: {page.page_type}\n')
-
-                print(f'{page}\n')
                 
                 page_id += 1 % PAGE_RANGE_MAX_LEN
                 if page_id == 0:
@@ -552,6 +682,6 @@ class Table:
     
 
     def __merge(self):
-        print("merge is happening")
+        # print("merge is happening")
         pass
  
