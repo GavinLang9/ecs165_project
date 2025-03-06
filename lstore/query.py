@@ -31,9 +31,11 @@ class Query:
 
         if rids == None:
             return False
-          
-        # Update record in table and index
-        self.table.delete_record(rids[0])
+        
+        self.table.index.indices[primary_key_column_idx].remove(primary_key)
+
+        # Might not be needed
+        # self.table.delete_record(rids[0])
         return True
 
     """
@@ -193,9 +195,6 @@ class Query:
     
         primary_key_column_idx = self.table.key
 
-        # update primary key
-        if columns[ primary_key_column_idx ] is not None:
-            pass
         
         # Fail if record does not exist
         rids = self.index.locate( primary_key_column_idx, primary_key )
@@ -205,6 +204,11 @@ class Query:
           
         # Update record in table and index
         self.table.update_record(rids[0], list(columns))
+        
+        # update primary key
+        if columns[ primary_key_column_idx ] is not None:
+            self.table.index.indices[primary_key_column_idx].remove(primary_key)
+        
         return True
 
 

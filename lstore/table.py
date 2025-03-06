@@ -684,4 +684,75 @@ class Table:
     def __merge(self):
         # print("merge is happening")
         pass
- 
+
+    # Might not be necessary - just delete rid from Index
+
+    # def delete_record(self, base_rid: int):
+    #     """
+    #     Deletes a record by removing it from the page directory and updating relevant metadata.
+    #     If the record is a base record, its tail records will also be handled.
+
+    #     Args:
+    #         base_rid (int): The rid of the record to be deleted.
+    #     """
+    #     base_record = self.get_record(base_rid)
+
+    #     # Ensure the record exists and isn't already deleted
+    #     if base_record is None:
+    #         raise ValueError(f"Record with RID {base_rid} does not exist.")
+        
+    #     # Handle deletion of tail records if there are any
+    #     current_tail_record = base_record
+    #     while current_tail_record.indirection != current_tail_record.rid:
+    #         # Get the next tail record
+    #         next_tail_record = self.get_record(current_tail_record.indirection)
+            
+    #         # Mark this tail record for deletion
+    #         self._delete_tail_record(next_tail_record.rid)
+            
+    #         current_tail_record = next_tail_record
+
+    #     # Now, delete the base record
+    #     self._delete_base_record(base_rid)
+
+    #     # Optionally, update any metadata or internal structures to reflect the deleted record
+    #     self.page_directory.pop(base_rid, None)
+
+
+    # def _delete_tail_record(self, tail_rid: int):
+    #     """
+    #     Handles the deletion of a tail record by removing its pages from the buffer pool
+    #     and updating the relevant page directory entries.
+        
+    #     Args:
+    #         tail_rid (int): The rid of the tail record to delete.
+    #     """
+    #     page_range_ids, page_ids, offsets = self.page_directory.get(tail_rid, ([], [], []))
+
+    #     # Loop through all pages related to this tail record and free them
+    #     for page_range_id, page_id, offset in zip(page_range_ids, page_ids, offsets):
+    #         page = self.bufferpool.get_page(page_range_id, page_id)
+    #         if page:
+    #             page.mark_as_deleted()  # You might need a method like this to mark pages as free
+    #             self.bufferpool.write_page(page_range_id, page_id, page)
+
+    #     # Remove the entry from the page directory
+    #     self.page_directory.pop(tail_rid, None)
+
+    # def _delete_base_record(self, base_rid: int):
+    #     """
+    #     Handles the deletion of a base record by updating the record's indirection and schema encoding.
+    #     Removes the record from the page directory.
+
+    #     Args:
+    #         base_rid (int): The rid of the base record to delete.
+    #     """
+    #     base_record = self.get_record(base_rid)
+
+    #     # Mark the base record as deleted (or set its indirection to itself if you want to preserve its space)
+    #     self._write_record_column(base_rid, 0, base_rid)  # Set indirection to itself to signify deletion
+    #     self._write_record_column(base_rid, 3, 0)  # Clear schema encoding (or set to a 'deleted' value)
+
+    #     # Remove the entry from the page directory
+    #     self.page_directory.pop(base_rid, None)
+    
