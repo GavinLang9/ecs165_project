@@ -89,7 +89,7 @@ class Index:
         if self.indices[column_number] is not None:
             return
 
-        self.indices[column_number] = Btree(t=3)
+        self.indices[column_number] = Btree(t=B_TREE_ORDER)
 
     """
     # optional: Drop index of specific column

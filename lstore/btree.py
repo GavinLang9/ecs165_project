@@ -1,6 +1,7 @@
 import pdb
 from typing import List, Tuple
 import struct
+from lstore.config import *
 
 """
 # Data Structure: Node
@@ -10,7 +11,7 @@ import struct
 #  children: list - List of children nodes (number of children is equal to number of keys + 1)
 """
 class Node:
-    def __init__(self, is_leaf: bool, t: int=3):
+    def __init__(self, is_leaf: bool, t: int=B_TREE_ORDER):
         self.is_leaf: bool = is_leaf
         self.t: int = t
         self.keys: List[Tuple] = []
@@ -77,6 +78,7 @@ class Node:
         if not self.is_leaf:
             for child in self.children:
                 child.debug_display(level + 1)
+             
     def remove(self, key: int, tree):
         """
         Removes a key from the B-Tree.
@@ -95,12 +97,19 @@ class Node:
             if self.is_leaf:
                 return  # Key not found, nothing to do
 
-            child = self.children[idx]
-            if len(child.keys) < self.t:
-                self.ensure_valid_child(idx, tree)
+            # Save the flag to check if we need to ensure child validity
+            need_to_ensure = idx < len(self.children) and len(self.children[idx].keys) < self.t
             
-            # Recursive delete in the adjusted child node
-            self.children[idx].remove(key, tree)
+            if need_to_ensure:
+                self.ensure_valid_child(idx, tree)
+                
+                # After ensure_valid_child, we need to re-find the index
+                # as the tree structure might have changed
+                idx = self.find_key_index(key)
+            
+            # Check if the index is still valid
+            if idx < len(self.children):
+                self.children[idx].remove(key, tree)
 
     def find_key_index(self, key: int):
         """Helper function to find index of a key or the child where key should exist"""
@@ -113,6 +122,8 @@ class Node:
         """
         Handles deletion when the key is in an internal node.
         """
+        key_to_remove = self.keys[idx][0]  # Save the key value before any modifications
+        
         if len(self.children[idx].keys) >= self.t:
             # Use predecessor (largest in left subtree)
             pred_key = self.get_predecessor(idx)
@@ -126,8 +137,9 @@ class Node:
         else:
             # Merge children and remove recursively
             self.merge_children(idx)
-            self.children[idx].remove(self.keys[idx][0], tree)
-
+            # After merging, the key is now in the child at idx
+            self.children[idx].remove(key_to_remove, tree)
+            
     def ensure_valid_child(self, idx: int, tree):
         """
         Ensures the child at index idx has enough keys for deletion.
@@ -317,7 +329,7 @@ class Btree:
             nodes[i].children = [nodes[idx] for idx in children_indices]
         
         # Create and return the tree
-        tree = Btree(t=3)  # Use the correct degree
+        tree = Btree(t=B_TREE_ORDER)  # Use the correct degree
         tree.root = nodes[0] if nodes else None
         return tree
 
@@ -404,7 +416,7 @@ class Btree:
         """
         if not self.root:
             return
-
+        
         self.root.remove(key, self)
 
         # If the root becomes empty after removal, update root
@@ -428,3 +440,4 @@ class Btree:
 
         parent.keys.pop(idx)
         parent.children.pop(idx + 1)
+
