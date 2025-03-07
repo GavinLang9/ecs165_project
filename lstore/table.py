@@ -679,11 +679,79 @@ class Table:
                 if page_id == 0:
                     page_range_id += 1
                 current_offset = page_range_id * PAGE_RANGE_MAX_LEN * (PAGE_SIZE +16) +(page_id * (PAGE_SIZE + 16))
-    
 
     def __merge(self):
-        # print("merge is happening")
-        pass
+        """
+        Merges most recent tail records into their respective base records
+
+        Order of Operations:
+            Frequency: Once number of updates (tail records) reaches 50% (arbitrary value) of base records
+
+            Load range of base pages into memory (outside of bufferpool)
+            Iterate through tail records, updating base records in copied base pages
+            Update page directory to point at new base pages (may need locking)
+
+
+        Notes:
+            Indirection column of updated base record is same as latest tail record
+            No records are deleted/removed
+        """
+
+        print("Merge is happening...")
+
+        # NOTE: merge function currently occurs every 15 updates
+        with self.lock:
+            base_record_RIDs = self.index.locate_range(0, 906659770, self.key)
+
+            num_pages_per_col = int( (len( base_record_RIDs ) + RECORDS_PER_PAGE - 1) / RECORDS_PER_PAGE )
+            remaining_base_records = len( base_record_RIDs )
+            offsets = [] * (self.num_columns + NUM_META_COLUMNS)
+
+            consolidated_base_pages = []
+
+            # make new pages, populate with condensed base records
+            for page_idx in range( num_pages_per_col ):
+                consolidated_base_page_set = [ Page() ] * (self.num_columns + NUM_META_COLUMNS)
+
+                # populate pages with condensed base records
+                for base_record_idx in range( remaining_base_records ):
+                    # get latest record
+                    base_rid = base_record_RIDs[ (page_idx * RECORDS_PER_PAGE) + base_record_idx ][ 0 ]
+                    # base_record = self.get_record(base_rid)
+                    latest_record = self.get_latest_record( base_rid )
+                    metadata = [
+                        base_rid,
+                        base_rid,
+                        int(time() * 1000),
+                        latest_record.schema_encoding
+                    ]
+                    consolidated_record_data = metadata + latest_record.columns
+
+                    # write values to corresponding pages
+                    for i, value in enumerate(consolidated_record_data):
+                        index = consolidated_base_page_set[i].write( value )
+                        offsets[i].append( index )
+                        if base_record_idx >= RECORDS_PER_PAGE:
+                            break
+
+                remaining_base_records -= RECORDS_PER_PAGE
+
+                consolidated_base_pages.append( consolidated_base_page_set )
+
+            # Write to disk
+            for page_set in consolidated_base_pages:
+                for i, (page, base_rid) in enumerate(zip(page_set, base_record_RIDs)):
+                    page_range_ids, page_ids = self._get_base_write_locations()
+
+                    self.bufferpool.write_page(page_range_ids[i], page_ids[i], page)
+
+                    # Remap page directory
+                    # Extract the ith element from each sublist
+                    ith_elements = [sublist[i] for sublist in offsets if len(sublist) > i]
+                    self.page_directory[ base_rid[0] ] = (page_range_ids, page_ids, ith_elements)
+
+            # TODO : Get bufferpool lock (?)
+            # TODO: TPS
 
     # Might not be necessary - just delete rid from Index
 
