@@ -177,7 +177,7 @@ class Query:
                 current_record = previous_record  # Move to the older version
 
             # Apply column projection
-            tmp_columns = tuple(column for column, include in zip(list(current_record.columns), projected_columns_index) if include == 1)
+            tmp_columns = list(column for column, include in zip(list(current_record.columns), projected_columns_index) if include == 1)
             final_records.append(Record(current_record.rid, current_record.indirection, current_record.schema_encoding, current_record.key, tmp_columns))
 
         return final_records
@@ -201,7 +201,7 @@ class Query:
 
         if rids == None:
             return False
-          
+                  
         # Update record in table and index
         self.table.update_record(rids[0], list(columns))
         
