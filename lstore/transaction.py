@@ -1,7 +1,14 @@
+import pdb
 from lstore.table import Table, Record
 from lstore.index import Index
 from lstore.lock_manager import LockManager, LockType
+import logging
 
+logging.basicConfig(
+    filename='transaction.log',
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(threadName)s: %(message)s",
+)
 class Transaction:
     """
     # Creates a transaction object.
@@ -37,11 +44,15 @@ class Transaction:
         Runs the transaction with Two-Phase Locking protocol.
         Returns True if transaction commits or False on abort.
         """
+        
         try:
             # acquire all locks
+            logging.info(f"Thread {self.transaction_id} starting")
             if not self._acquire_all_locks():
+                logging.warning(f"Thread {self.transaction_id} could not acquire all locks.  Aborting...")
                 return self.abort()
             
+            logging.info(f'Thread {self.transaction_id} acquired all locks')
             self.locks_acquired = True
             
             for query, table, args in self.queries:
@@ -49,16 +60,27 @@ class Transaction:
                 
                 # abort if any query fails
                 if result is False: 
+                    logging.error(f'Thread {self.transaction_id} failed query {query.__name__} on table {table.name} with args {args}.  Aborting...')
                     return self.abort()
                 
                 # track the newly inserted record
                 if query.__name__ == 'insert' and result:
                     self.modified_records.append((table, result, None))
             
+            logging.info(f'Thread {self.transaction_id} finished.  Committing now...')
             return self.commit()
-            
+        except IndexError as e:
+            print(f'Index error: {e}')
+            return self.abort()
+
+        except KeyError as e:
+            print(f'key Error: {e}')
+            logging.error(f'Thread {self.transaction_id} aborted due to a key error.\n failed query {query.__name__} on table {table.name} with args {args}.  Aborting...')
+            return self.abort()
+
         except Exception as e:
             print(f"Transaction error: {e}")
+            logging.error(f'Thread {self.transaction_id} aborted due to an exception')
             return self.abort()
     
     def _acquire_all_locks(self):

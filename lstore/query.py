@@ -1,7 +1,13 @@
 import pdb
 from lstore.table import Table, Record
 from lstore.index import Index
+import logging
 
+logging.basicConfig(
+    filename="query.log",  # Save logs to a file
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(threadName)s: %(message)s",
+)
 
 class Query:
     """
@@ -190,6 +196,7 @@ class Query:
 
     def update(self, primary_key, *columns):
         # Fail if mismatching number of columns
+        logging.info(f'starting update on key {primary_key} with columns {columns}')
         if len(columns) != self.table.num_columns:
             return False
     
@@ -203,8 +210,11 @@ class Query:
             return False
                   
         # Update record in table and index
-        self.table.update_record(rids[0], list(columns))
-        
+        try:
+            self.table.update_record(rids[0], list(columns))
+        except KeyError as e:
+            print(f'Key error in query.update: {e}')
+            logging.error(f'key error in update. primary key: {primary_key}, columns: {columns}')
         # update primary key
         if columns[ primary_key_column_idx ] is not None and columns[ primary_key_column_idx ] != primary_key:
             self.table.index.indices[primary_key_column_idx].remove(primary_key)

@@ -55,41 +55,49 @@ class BufferPool:
         return page
 
     def write_page(self, page_range_id: int, page_id: int, page: Page):
-        key = (page_range_id, page_id)
-        if key not in self.pool and self._is_full():
-            self.evict_page()
-        
-        self.pool[key] = page
-        self.mark_dirty(page_range_id, page_id)
+        try:
+            key = (page_range_id, page_id)
+            if key not in self.pool and self._is_full():
+                self.evict_page()
+            
+            self.pool[key] = page
+            self.mark_dirty(page_range_id, page_id)
+        except Exception as e:
+            
+            print(f'error writing page to bufferpool: {e}')
+
         # self.force_page(page_range_id, page_id)
 
     def evict_page(self):
-        if not self.pool:
-            return
+        try:
+            if not self.pool:
+                return
+                
+            key = None
+            page = None
             
-        key = None
-        page = None
-        
-        items = list(self.pool.items())
+            items = list(self.pool.items())
 
-        # Get least recently used page
-        # Try to find first unpinned page
-        for k, p in items:
-            if k in self.pin_count and self.pin_count[k] == 0:
-                key, page = k, p
-                break
-        else:
-            # If all pages are pinned, we can't evict any
-            raise Exception("All pages are pinned, cannot evict")
-                    
-        # If page was modified, write back to disk
-        if key in self.dirty_pages:
-            page_range_id = key[0]
-            page_id = key[1]
-            self._write_to_disk(page_range_id, page_id, page)
-            self.dirty_pages.remove(key)
+            # Get least recently used page
+            # Try to find first unpinned page
+            for k, p in items:
+                if k in self.pin_count and self.pin_count[k] == 0:
+                    key, page = k, p
+                    break
+            else:
+                # If all pages are pinned, we can't evict any
+                raise Exception("All pages are pinned, cannot evict")
+                        
+            # If page was modified, write back to disk
+            if key in self.dirty_pages:
+                page_range_id = key[0]
+                page_id = key[1]
+                self._write_to_disk(page_range_id, page_id, page)
+                self.dirty_pages.remove(key)
 
-        self.pool.pop(key,None)
+            self.pool.pop(key,None)
+        except Exception as e:
+            print(f'error in bufferpool evict page: {key}')
 
     def flush(self):
         for key, page in self.pool.items():
@@ -104,9 +112,12 @@ class BufferPool:
             self.dirty_pages.remove(key)
 
     def mark_dirty(self, page_range_id: int, page_id: int):
-        key = (page_range_id, page_id)
-        if key in self.pool:
-            self.dirty_pages.add(key)
+        try:
+            key = (page_range_id, page_id)
+            if key in self.pool:
+                self.dirty_pages.add(key)
+        except Exception as e:
+            print(f'Error marking page {key} dirty')
 
     def _is_full(self):
         return len(self.pool) >= self.capacity

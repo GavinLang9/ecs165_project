@@ -284,8 +284,9 @@ class Table:
         for i,(value, page_range_id, page_id) in enumerate(zip(record_data, page_range_ids, column_page_ids)):
             if value == None:
                 continue
+            
             page = self.bufferpool.get_page(page_range_id, page_id)
-
+            
             if not page:
                 page = Page()
 
@@ -301,8 +302,10 @@ class Table:
             index = page.write(value)
             offsets[i] = index
             page.page_type = 'tail'
-            self.bufferpool.write_page(page_range_id, page_id, page)
-
+            try:
+                self.bufferpool.write_page(page_range_id, page_id, page)
+            except KeyError as e:   
+                print(f'key error in table.update - bufferpool.write_page: {e}')
             # update tail counters
             self.current_tail_page_range[i] = page_range_id
             self.current_tail_page[i] = page_id
