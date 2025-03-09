@@ -590,16 +590,17 @@ class Table:
 
         for i,(page_range, page) in enumerate(zip(self.current_tail_page_range, self.current_tail_page)):
             if page_range == max_page_range:
-                if page > max_page:
-                    max_page = page
+                if page + 1 > max_page:
+                    max_page = page + 1
                     continue
             elif page_range > max_page_range:
                 max_page_range = page_range
-                max_page = page
+                max_page = page + 1
         if max_page >= PAGE_RANGE_MAX_LEN:
             max_page_range += 1
             max_page = 0
         return (max_page_range, max_page)
+
 
     def _write_record_column(self, rid, column_index, value):
         """
@@ -711,7 +712,7 @@ class Table:
         print( "Page being printed..." )
         print( "Page Range ID: ", page_range_id )
         print( "Page ID:       ", page_id )
-        print( num_records_to_print, " of ", page.num_records, " printed." )
+        print( num_records_to_print, " of ", page.num_records, " records printed." )
 
         for offset in range( num_records_to_print ):
             value = page[ offset ]
@@ -871,8 +872,10 @@ class Table:
 
         # Write to disk
         for i, page_set in enumerate( consolidated_base_pages ):
-            page_range_ids, page_ids = self._next_empty_locations()
-
+            # page_range_ids, page_ids = self._next_empty_locations()
+            page_range_id, page_id = self._next_free_location()
+            self.print_page( page_range_id, page_id, 10 )
+            return
 
             # write populated pages to disk
             for j, page in enumerate( page_set ):
