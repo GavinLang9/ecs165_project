@@ -1,4 +1,5 @@
 import os
+import sys
 from typing import Tuple
 from lstore.index import Index
 from lstore.bufferpool import BufferPool
@@ -12,9 +13,10 @@ import struct
 MERGE_FREQUENCY = RECORDS_PER_PAGE  # runs __merge() every x record updates
 
 class Record:
-    def __init__(self, rid, indirection, schema_encoding, key, columns):
+    def __init__(self, rid, indirection, timestamp, schema_encoding, key, columns):
         self.rid = rid
         self.indirection = indirection
+        self.timestamp = timestamp
         self.schema_encoding = schema_encoding
         self.key = key
         self.columns = columns
@@ -212,8 +214,8 @@ class Table:
         metadata = [
             rid,                            # INDIRECTION
             rid,                            # RID
-            int(0 * 1000),             # TIMESTAMP
-            0            # SCHEMA ENCODING
+            int(0 * 1000),                  # TIMESTAMP
+            0                               # SCHEMA ENCODING
         ]
         record_data = metadata + list(columns)
 
@@ -348,7 +350,7 @@ class Table:
                     columns[index] = col
             current_tail_record = next_tail_record
 
-        latest_tail_record = Record(None, None, None, None, columns)
+        latest_tail_record = Record(None, None, None, None, None, columns)
         # Using cumulative tail records
         # Fill in all None values with base record values
         latest_tail_record = self._get_cumulative_tail_record_columns(latest_tail_record, base_record)
@@ -418,7 +420,7 @@ class Table:
             value = page[offset]
             columns.append(value)
         
-        record = Record(rid, columns[INDIRECTION_COLUMN], columns[SCHEMA_ENCODING_COLUMN], columns[self.key + NUM_META_COLUMNS], columns[4:]) # 4 columns of metadata followed by key
+        record = Record(rid, columns[INDIRECTION_COLUMN], columns[TIMESTAMP_COLUMN], columns[SCHEMA_ENCODING_COLUMN], columns[self.key + NUM_META_COLUMNS], columns[4:]) # 4 columns of metadata followed by key
         return record
 
     def _new_pages_will_overflow_page_range(self, current_page, total_columns):
@@ -651,7 +653,7 @@ class Table:
     def _missing_updated_columns(self, schema_encoding: list[int], columns) -> int:
     # Ensure both arrays have the same length
         if len(schema_encoding) != len(columns):
-            pdb.set_trace()
+            # pdb.set_trace()
             raise ValueError("Arrays must have the same length.")
 
         # Count mismatches where schema_encoding is 1, but the columns array has None
@@ -814,7 +816,8 @@ class Table:
         # NOTE: merge function currently occurs every 15 updates
         # TODO : get lock (?)
         # with self.lock:
-        base_record_RIDs = self.index.locate_range(0, 906659770, self.key)
+        # base_record_RIDs = self.index.locate_range(0, 906659770, self.key)
+        base_record_RIDs = self.index.locate_range(0, sys.maxsize, self.key)
         base_record_RIDs = sorted( base_record_RIDs )  # TODO : double check how to correctly sort and interact with base_record_RIDs
 
         num_pages_per_col = int( (len( base_record_RIDs ) + RECORDS_PER_PAGE - 1) / RECORDS_PER_PAGE )
@@ -828,27 +831,39 @@ class Table:
             consolidated_base_page_set = [ Page() for _ in range(self.num_columns + NUM_META_COLUMNS) ]
 
             # populate pages with condensed base records
-            for base_record_idx in range( num_remaining_base_records ):
+            num_base_records_to_add = min( RECORDS_PER_PAGE, num_remaining_base_records )  # makes sure pages don't overflow
+            for base_record_idx in range( num_base_records_to_add ):
                 # get latest record
                 base_rid = base_record_RIDs[ (page_idx * RECORDS_PER_PAGE) + base_record_idx ][ 0 ]
 
-                # testing
+                # create consolidated base record
                 base_record = self.get_record( base_rid )
                 latest_record = self.get_latest_record( base_rid )
-                metadata = [
-                    base_rid,                       # Indirection
-                    base_rid,                       # RID
-                    int(time() * 1000),             # Timestamp
-                    base_record.schema_encoding     # Schema Encoding
-                ]
+
+                # if base record has no updates, don't update metadata
+                if base_record.indirection == base_record.rid:
+                    metadata = [
+                        base_record.indirection,
+                        base_record.rid,
+                        base_record.timestamp,
+                        base_record.schema_encoding
+                    ]
+                else:
+                    metadata = [
+                        base_rid,                       # Indirection
+                        base_rid,                       # RID
+                        int(time() * 1000),             # Timestamp
+                        base_record.schema_encoding     # Schema Encoding
+                    ]
+
                 consolidated_record_data = metadata + latest_record.columns
 
                 # write values to corresponding pages
-                for i, value in enumerate(consolidated_record_data):
+                for i, value in enumerate( consolidated_record_data ):
                     index = consolidated_base_page_set[i].write( value )
                     offsets[i].append( index )
-                    if base_record_idx >= RECORDS_PER_PAGE:
-                        break
+                    # if index >= RECORDS_PER_PAGE:
+                    #     break
 
             num_remaining_base_records -= min( RECORDS_PER_PAGE, num_remaining_base_records )
 
