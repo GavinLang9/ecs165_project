@@ -214,7 +214,7 @@ class Table:
         metadata = [
             rid,                            # INDIRECTION
             rid,                            # RID
-            int(0 * 1000),                  # TIMESTAMP
+            int(time() * 1000),             # TIMESTAMP
             0                               # SCHEMA ENCODING
         ]
         record_data = metadata + list(columns)
@@ -247,6 +247,16 @@ class Table:
         self.page_directory[rid] = (page_range_ids, column_page_ids, offsets)
         self._update_base_indexes()
 
+        # TODO : REMOVE THIS
+        page = self.bufferpool.get_page( page_range_ids[SCHEMA_ENCODING_COLUMN], column_page_ids[SCHEMA_ENCODING_COLUMN] )
+        if page[ offsets[SCHEMA_ENCODING_COLUMN] ] > 31:
+            print()
+
+        tmp_page_range_IDs, tmp_page_IDs, tmp_offsets = self.page_directory[ rid ]
+        my_page = self.bufferpool.get_page(tmp_page_range_IDs[SCHEMA_ENCODING_COLUMN], tmp_page_IDs[SCHEMA_ENCODING_COLUMN])
+        if my_page[ offsets[SCHEMA_ENCODING_COLUMN] ] > 31:
+            print()
+
     def update_record(self, base_rid, columns):
         """
         Updates a record by writing columns to their corresponding tail pages
@@ -263,9 +273,15 @@ class Table:
         #     pdb.set_trace()
         if len(columns) != self.num_columns:
             raise ValueError("Invalid number of columns")
+
         base_record = self.get_record(base_rid)
         indirection_rid = base_record.indirection
         tail_rid = self.rid_counter
+
+        # TODO : REMOVE THIS
+        if base_record.schema_encoding > 31:
+            print()
+
         base_schema_encoding = self._convert_int_to_schema_encoding(base_record.schema_encoding)
         schema_encoding = self._get_schema_encoding( columns )
         schema_encoding = self._logical_or(base_schema_encoding, schema_encoding)
@@ -394,9 +410,14 @@ class Table:
         updates indirection and schema encoding columns for a base page
 
         """
-        self._write_record_column(base_rid, 0, tail_rid)
+        self._write_record_column(base_rid, INDIRECTION_COLUMN, tail_rid)
         schema_encoding_int = int.from_bytes(self._convert_schema_encoding_to_bytes(schema_encoding), byteorder='big')
-        self._write_record_column(base_rid, 3, schema_encoding_int)
+
+        # TODO : REMOVE THIS
+        if schema_encoding_int > 31:
+            print()
+
+        self._write_record_column(base_rid, SCHEMA_ENCODING_COLUMN, schema_encoding_int)
 
     def get_record(self, rid: int) -> Record:
         """
@@ -419,6 +440,10 @@ class Table:
                 continue
             value = page[offset]
             columns.append(value)
+
+        # TODO : REMOVE THIS
+        if columns[ SCHEMA_ENCODING_COLUMN ] > 31:
+            print()
         
         record = Record(rid, columns[INDIRECTION_COLUMN], columns[TIMESTAMP_COLUMN], columns[SCHEMA_ENCODING_COLUMN], columns[self.key + NUM_META_COLUMNS], columns[4:]) # 4 columns of metadata followed by key
         return record
@@ -627,7 +652,7 @@ class Table:
     
     def _convert_int_to_schema_encoding(self, schema_encoding: int) -> list[int]:
         bit_string = bin(schema_encoding)[2:].zfill(self.num_columns)
-    
+
         # Return a list of bits as integers
         return [int(bit) for bit in bit_string]
     
@@ -696,7 +721,7 @@ class Table:
 
         page = self.bufferpool.get_page( page_range_id, page_id )
 
-        if not page:
+        if page:
             print("Invalid page")
 
         # exit if empty page
@@ -732,14 +757,10 @@ class Table:
         while len( page_range_IDs ) < ( NUM_META_COLUMNS + self.num_columns ):
             page = self.bufferpool.get_page( page_range_ID, page_ID )
 
-            if not page:
-                page_ID += 1
-                if page_ID > PAGE_RANGE_MAX_LEN:
-                    page_ID = 0
-                    page_range_ID += 1
-                continue
-
-            if page.is_empty():
+            if page is None:
+                page_range_IDs.append( page_range_ID )
+                page_IDs.append( page_ID )
+            elif page.is_empty():
                 page_range_IDs.append( page_range_ID )
                 page_IDs.append( page_ID )
 
@@ -839,7 +860,6 @@ class Table:
 
                 # create consolidated base record
                 base_record = self.get_record( base_rid )
-                latest_record = self.get_latest_record( base_rid )
 
                 # if base record has no updates, don't update metadata
                 if base_record.indirection == base_record.rid:
@@ -849,15 +869,18 @@ class Table:
                         base_record.timestamp,
                         base_record.schema_encoding
                     ]
+                    consolidated_record_data = metadata + base_record.columns
+
                 else:
+                    latest_record = self.get_latest_record(base_rid)
+
                     metadata = [
                         base_rid,                       # Indirection
                         base_rid,                       # RID
                         int(time() * 1000),             # Timestamp
                         base_record.schema_encoding     # Schema Encoding
                     ]
-
-                consolidated_record_data = metadata + latest_record.columns
+                    consolidated_record_data = metadata + latest_record.columns
 
                 # write values to corresponding pages
                 for i, value in enumerate( consolidated_record_data ):
@@ -872,15 +895,15 @@ class Table:
 
         # Write to disk
         for i, page_set in enumerate( consolidated_base_pages ):
-            # page_range_ids, page_ids = self._next_empty_locations()
-            page_range_id, page_id = self._next_free_location()
-            self.print_page( page_range_id, page_id, 10 )
-            return
+            page_range_ids, page_ids = self._next_empty_locations()
+            # page_range_id, page_id = self._next_free_location()
+            # self.print_page( page_range_id, page_id, 10 )
+            # return
 
             # write populated pages to disk
             for j, page in enumerate( page_set ):
                 # self.print_page( page_range_ids[j], page_ids[j], 10)
-                self.bufferpool.write_page( page_range_ids[j], page_ids[j], page )
+                self.bufferpool._write_to_disk( page_range_ids[j], page_ids[j], page )
 
             # update page directory
             num_base_records_in_page_set = min( len( base_record_RIDs ), len( base_record_RIDs ) - (RECORDS_PER_PAGE * i) )
