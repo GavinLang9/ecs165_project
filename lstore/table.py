@@ -1,4 +1,5 @@
 import os
+import sys
 from typing import Tuple
 from lstore.index import Index
 from lstore.bufferpool import BufferPool
@@ -12,9 +13,10 @@ import struct
 MERGE_FREQUENCY = RECORDS_PER_PAGE  # runs __merge() every x record updates
 
 class Record:
-    def __init__(self, rid, indirection, schema_encoding, key, columns):
+    def __init__(self, rid, indirection, timestamp, schema_encoding, key, columns):
         self.rid = rid
         self.indirection = indirection
+        self.timestamp = timestamp
         self.schema_encoding = schema_encoding
         self.key = key
         self.columns = columns
@@ -212,8 +214,8 @@ class Table:
         metadata = [
             rid,                            # INDIRECTION
             rid,                            # RID
-            int(0 * 1000),             # TIMESTAMP
-            0            # SCHEMA ENCODING
+            int(time() * 1000),             # TIMESTAMP
+            0                               # SCHEMA ENCODING
         ]
         record_data = metadata + list(columns)
 
@@ -245,6 +247,7 @@ class Table:
         self.page_directory[rid] = (page_range_ids, column_page_ids, offsets)
         self._update_base_indexes()
 
+
     def update_record(self, base_rid, columns):
         """
         Updates a record by writing columns to their corresponding tail pages
@@ -263,6 +266,60 @@ class Table:
             raise ValueError("Invalid number of columns")
         base_record = self.get_record(base_rid)
         indirection_rid = base_record.indirection
+        if base_record.schema_encoding == 0:
+            indirection_rid = self.rid_counter
+            tail_rid = self.rid_counter
+            base_schema_encoding = self._convert_int_to_schema_encoding(base_record.schema_encoding)
+            tmp_schema_encoding = [None] * self.num_columns
+            schema_encoding = self._logical_or(base_schema_encoding, tmp_schema_encoding)
+            schema_encoding_bytes = self._convert_schema_encoding_to_bytes(schema_encoding)
+
+            metadata = [
+                indirection_rid,                   # INDIRECTION (previous tail record's RID)
+                tail_rid,                          # RID
+                int(0 * 1000),                     # TIMESTAMP
+                schema_encoding_bytes              # SCHEMA ENCODING
+            ]
+
+            record_data = metadata + base_record.columns
+
+            # returns a tuple of lists that hold page range and page indexes for each column
+            page_range_ids, column_page_ids = self._get_tail_write_locations(record_data)
+
+            offsets = [None] * len(record_data)
+            # write each column to their corresponding location in disk
+            for i,(value, page_range_id, page_id) in enumerate(zip(record_data, page_range_ids, column_page_ids)):
+                if value == None:
+                    continue
+                page = self.bufferpool.get_page(page_range_id, page_id)
+
+                if not page:
+                    page = Page()
+
+                if not page.has_capacity():
+                    page = Page()
+                    page_id = self._next_free_page()
+                    if page_id == 0:
+                        page_range_id = self._next_free_page_range()
+                    page_range_ids[i] = page_range_id
+                    column_page_ids[i] = page_id                
+                    # raise IndexError("This page has no space")
+
+                index = page.write(value)
+                offsets[i] = index
+                page.page_type = 'tail'
+                self.bufferpool.write_page(page_range_id, page_id, page)
+
+                # update tail counters
+                self.current_tail_page_range[i] = page_range_id
+                self.current_tail_page[i] = page_id
+            # Update table metadata
+            # pdb.set_trace()
+            self.page_directory[tail_rid] = (page_range_ids, column_page_ids, offsets)
+            self._update_tail_indexes(offsets)
+            self._update_base_record_metadata( base_rid, tail_rid, schema_encoding )
+
+            indirection_rid = tail_rid
         tail_rid = self.rid_counter
         base_schema_encoding = self._convert_int_to_schema_encoding(base_record.schema_encoding)
         schema_encoding = self._get_schema_encoding( columns )
@@ -348,7 +405,7 @@ class Table:
                     columns[index] = col
             current_tail_record = next_tail_record
 
-        latest_tail_record = Record(None, None, None, None, columns)
+        latest_tail_record = Record(None, None, None, None, None, columns)
         # Using cumulative tail records
         # Fill in all None values with base record values
         latest_tail_record = self._get_cumulative_tail_record_columns(latest_tail_record, base_record)
@@ -392,9 +449,11 @@ class Table:
         updates indirection and schema encoding columns for a base page
 
         """
-        self._write_record_column(base_rid, 0, tail_rid)
-        schema_encoding_int = int.from_bytes(self._convert_schema_encoding_to_bytes(schema_encoding), byteorder='big')
-        self._write_record_column(base_rid, 3, schema_encoding_int)
+        self._write_record_column(base_rid, INDIRECTION_COLUMN, tail_rid)
+        # schema_encoding_int = int.from_bytes(self._convert_schema_encoding_to_bytes(schema_encoding), byteorder='big')
+        schema_encoding_int = schema_encoding
+
+        self._write_record_column(base_rid, SCHEMA_ENCODING_COLUMN, schema_encoding_int)
 
     def get_record(self, rid: int) -> Record:
         """
@@ -415,10 +474,11 @@ class Table:
             if page is None:
                 columns.append(None)
                 continue
-            value = page[offset]
+            # value = page[offset]
+            value = page.__getitem__( offset )
             columns.append(value)
-        
-        record = Record(rid, columns[INDIRECTION_COLUMN], columns[SCHEMA_ENCODING_COLUMN], columns[self.key + NUM_META_COLUMNS], columns[4:]) # 4 columns of metadata followed by key
+
+        record = Record(rid, columns[INDIRECTION_COLUMN], columns[TIMESTAMP_COLUMN], columns[SCHEMA_ENCODING_COLUMN], columns[self.key + NUM_META_COLUMNS], columns[4:]) # 4 columns of metadata followed by key
         return record
 
     def _new_pages_will_overflow_page_range(self, current_page, total_columns):
@@ -475,7 +535,7 @@ class Table:
 
         return (page_range_ids, column_page_ids)
 
-    def _get_tail_write_locations(self, columns: tuple) -> Tuple[list[int], list[int]]:
+    def _get_tail_write_locations(self, columns: list) -> Tuple[list[int], list[int]]:
         """
         Determines the page range and page index for each column to be written.
 
@@ -499,7 +559,7 @@ class Table:
         for i in range(len(columns)):
             next_free_page = self.current_tail_page[i]
             next_free_page_range = self.current_tail_page_range[i]
-            if columns[i] != None:
+            if columns[i] is not None:
                 if self.current_tail_offset[i] == 0:
                     next_free_page_range, next_free_page = self._next_free_location()
                     self.latest_page = next_free_page + 1 % PAGE_RANGE_MAX_LEN
@@ -578,8 +638,8 @@ class Table:
         """
         returns next empty page range and page id location
         """
-        max_page_range = self.latest_page_range
-        max_page = (self.latest_page + self.num_columns + NUM_META_COLUMNS) % PAGE_RANGE_MAX_LEN
+        max_page_range = self.current_base_page_range
+        max_page = (self.current_base_page + self.num_columns + NUM_META_COLUMNS) % PAGE_RANGE_MAX_LEN
 
         # if this page overflows into next page range
         if max_page < self.current_base_page:
@@ -588,16 +648,17 @@ class Table:
 
         for i,(page_range, page) in enumerate(zip(self.current_tail_page_range, self.current_tail_page)):
             if page_range == max_page_range:
-                if page > max_page:
-                    max_page = page
+                if page + 1 > max_page:
+                    max_page = page + 1
                     continue
             elif page_range > max_page_range:
                 max_page_range = page_range
-                max_page = page
+                max_page = page + 1
         if max_page >= PAGE_RANGE_MAX_LEN:
             max_page_range += 1
             max_page = 0
         return (max_page_range, max_page)
+
 
     def _write_record_column(self, rid, column_index, value):
         """
@@ -617,14 +678,22 @@ class Table:
         page.update(offset, value)
 
         self.bufferpool.write_page(page_range_id, page_id, page)
-    
+
+    def _convert_schema_encoding_to_int( self, schema_encoding ) -> int:
+        """
+        Converts byte array (i.e. [0, 0, 0, 0, 1] to integer
+        """
+
+        binary_str = ''.join(str(bit) for bit in schema_encoding)
+        return int(binary_str, 2)
+
     def _convert_schema_encoding_to_bytes(self, schema_encoding: list[int]) -> bytearray:
         bit_string = ''.join(map(str, schema_encoding))
         return int(bit_string, 2).to_bytes(8, byteorder='big')
     
     def _convert_int_to_schema_encoding(self, schema_encoding: int) -> list[int]:
         bit_string = bin(schema_encoding)[2:].zfill(self.num_columns)
-    
+
         # Return a list of bits as integers
         return [int(bit) for bit in bit_string]
     
@@ -651,7 +720,7 @@ class Table:
     def _missing_updated_columns(self, schema_encoding: list[int], columns) -> int:
     # Ensure both arrays have the same length
         if len(schema_encoding) != len(columns):
-            pdb.set_trace()
+            # pdb.set_trace()
             raise ValueError("Arrays must have the same length.")
 
         # Count mismatches where schema_encoding is 1, but the columns array has None
@@ -693,7 +762,7 @@ class Table:
 
         page = self.bufferpool.get_page( page_range_id, page_id )
 
-        if not page:
+        if page:
             print("Invalid page")
 
         # exit if empty page
@@ -709,7 +778,7 @@ class Table:
         print( "Page being printed..." )
         print( "Page Range ID: ", page_range_id )
         print( "Page ID:       ", page_id )
-        print( num_records_to_print, " of ", page.num_records, " printed." )
+        print( num_records_to_print, " of ", page.num_records, " records printed." )
 
         for offset in range( num_records_to_print ):
             value = page[ offset ]
@@ -729,89 +798,38 @@ class Table:
         while len( page_range_IDs ) < ( NUM_META_COLUMNS + self.num_columns ):
             page = self.bufferpool.get_page( page_range_ID, page_ID )
 
-            if not page:
-                page_ID += 1
-                if page_ID > PAGE_RANGE_MAX_LEN:
-                    page_ID = 0
-                    page_range_ID += 1
-                continue
-
-            if page.is_empty():
+            if page is None:
+                page_range_IDs.append( page_range_ID )
+                page_IDs.append( page_ID )
+            elif page.is_empty():
                 page_range_IDs.append( page_range_ID )
                 page_IDs.append( page_ID )
 
             # increment to next page
             page_ID += 1
 
-            if page_ID > PAGE_RANGE_MAX_LEN:
+            if page_ID >= PAGE_RANGE_MAX_LEN:
                 page_ID = 0
                 page_range_ID += 1
 
         return ( page_range_IDs, page_IDs )
 
-    def _get_condensed_base_write_locations( self ) -> Tuple[ list[int], list[int] ]:
-        """
-        Determines the page range and page index for each column to be written.
-        
-        Returns:
-            tuple: Contains two lists:
-                - List of page_range_ids for each column
-                - List of page_ids for each column
-        """
-        # Default all columns will be written to self.current_base_page_range
-        total_columns = self.num_columns + NUM_META_COLUMNS
-        next_page_range, next_page = self._next_free_location()
-        page = self.bufferpool.get_page( next_page_range, next_page )
-        if not page:
-            page = Page()
-        
-        while not page.is_empty():
-            next_page += 1
-            if next_page >= 64:
-                ValueError("No empty page")
+    def _update_base_counters_post_merge( self, page_range_IDs, page_IDs, offset ):
+        self.current_base_page_range = min( page_range_IDs )
+        self.current_base_page = min( page_IDs )
+        self.current_base_offset = offset
 
-            page = self.bufferpool.get_page( next_page_range, next_page )
-            if not page:
-                page = Page()
-            
+        # if page is full, move on to next
+        if offset == RECORDS_PER_PAGE:
+            self.current_base_page += 1
+            self.current_base_offset = 0
 
-        page_range_ids = [next_page_range] * total_columns
-        column_page_ids = list(range(next_page, next_page + total_columns))
-        
-        # If no overflow, all columns go to current page range
-        if not self._new_pages_will_overflow_page_range( next_page, total_columns ):
-            if page_range_ids[-1] > self.latest_page_range:
-                self.latest_page_range = page_range_ids[-1]
-                self.latest_page = column_page_ids[0]
-            elif page_range_ids[-1] == self.latest_page_range:
-                if column_page_ids[-1] > self.latest_page:
-                    self.latest_page = column_page_ids[0]
-            return (page_range_ids, column_page_ids)
+            # if page range is full, go on to next
+            if self.current_base_page > PAGE_RANGE_MAX_LEN:
+                self.current_base_page = 0
+                self.current_base_page_range += 1
 
-        # Else, split columns into remaining space and next page range
-        remaining_space = PAGE_RANGE_MAX_LEN - next_page # number of columns that will be stored in current page
-        overflow_columns = total_columns - remaining_space
-
-        page_range_ids = (
-                [next_page_range] * remaining_space +
-                [next_page_range + 1] * overflow_columns
-        )
-
-        column_page_ids = (
-                list(range(next_page, PAGE_RANGE_MAX_LEN)) +
-                list(range(overflow_columns))
-        )
-
-        # Update latest locations for pages to be placed
-        if page_range_ids[-1] > self.latest_page_range:
-            self.latest_page_range = page_range_ids[-1]
-            self.latest_page = column_page_ids[0]
-        elif page_range_ids[-1] == self.latest_page_range:
-            self.latest_page = column_page_ids[0]
-
-        return (page_range_ids, column_page_ids)
-
-    def __merge( self ):
+    def __merge(self):
         """
         Merges most recent tail records into their respective base records
 
@@ -824,104 +842,172 @@ class Table:
 
 
         Notes:
-            Indirection column is unchanged
+            Indirection column of updated base record is same as latest tail record
             No records are deleted/removed
+            To change merge frequency, update MERGE_FREQUENCY variable
         """
 
-        # TODO : BaseRID column in records (?)
         print("Merge is happening...")
 
-        base_record_RIDs_raw = self.index.locate_range( 0, 906659770, self.key )
+        # NOTE: merge function currently occurs every 15 updates
+        # TODO : get lock (?)
+        # with self.lock:
+        # base_record_RIDs = self.index.locate_range(0, 906659770, self.key)
+        base_record_RIDs = self.index.locate_range(0, sys.maxsize, self.key)
+        base_record_RIDs = sorted( base_record_RIDs, key=lambda x: x[0] )
 
-        base_record_RIDs = []
-        for rid_item in base_record_RIDs_raw:
-            if isinstance(rid_item, list):
-                # If it's a list, extract the first element (which should be the RID)
-                if rid_item:  # Check if list is not empty
-                    base_record_RIDs.append(rid_item[0])
-            else:
-                # If it's already an integer or other primitive type
-                base_record_RIDs.append(rid_item)
-
-        # Use processed_RIDs instead of base_record_RIDs
-        # NOTE: merge currently occurs every 15 updates
-        # get all base record RIDs
+        num_pages_per_col = int( (len( base_record_RIDs ) + RECORDS_PER_PAGE - 1) / RECORDS_PER_PAGE )
+        num_remaining_base_records = len( base_record_RIDs )
+        offsets = [ [] for _ in range(self.num_columns + NUM_META_COLUMNS) ]
 
         consolidated_base_pages = []
-        num_pages_per_col = int( ( len( base_record_RIDs ) + RECORDS_PER_PAGE - 1 ) / RECORDS_PER_PAGE )
-        remaining_base_records = len( base_record_RIDs )
-        offsets = [[] for _ in range(self.num_columns + NUM_META_COLUMNS)]
 
         # make new pages, populate with condensed base records
         for page_idx in range( num_pages_per_col ):
-            consolidated_base_page_set = [Page() for _ in range(self.num_columns + NUM_META_COLUMNS)]
+            consolidated_base_page_set = [ Page() for _ in range(self.num_columns + NUM_META_COLUMNS) ]
+
             # populate pages with condensed base records
-            for base_record_idx in range( remaining_base_records ):
-                if base_record_idx >= RECORDS_PER_PAGE:
-                        break
-                base_rid = base_record_RIDs[ (page_idx*RECORDS_PER_PAGE) + base_record_idx ]
-                latest_record = self.get_latest_record(base_rid)
-                metadata = [
-                    base_rid,
-                    base_rid,
-                    int(time() * 1000),
-                    0
-                ]
-                
-                for i, value in enumerate(metadata):
-                    index = consolidated_base_page_set[i].write(value)
-                    offsets[i].append(index)
+            num_base_records_to_add = min( RECORDS_PER_PAGE, num_remaining_base_records )  # makes sure pages don't overflow
+            for base_record_idx in range( num_base_records_to_add ):
+                # get latest record
+                base_rid = base_record_RIDs[ (page_idx * RECORDS_PER_PAGE) + base_record_idx ][ 0 ]
 
-                for i, value in enumerate(latest_record.columns):
-                    col_idx = i+len(metadata)
+                # create consolidated base record
+                base_record = self.get_record( base_rid )
 
-                    if isinstance(value, list):
-                        value_to_write = value[0] if value else 0
-                    else:
-                        value_to_write = 0 if value is None else value
+                # if base record has no updates, don't update metadata
+                if base_record.indirection == base_record.rid:
+                    metadata = [
+                        base_record.indirection,
+                        base_record.rid,
+                        base_record.timestamp,
+                        base_record.schema_encoding
+                    ]
+                    consolidated_record_data = metadata + base_record.columns
 
-                    index = consolidated_base_page_set[col_idx].write(value_to_write)
-                    offsets[col_idx].append(index)
+                else:
+                    latest_record = self.get_latest_record(base_rid)
 
-            remaining_base_records -= RECORDS_PER_PAGE
+                    metadata = [
+                        base_record.indirection,        # Indirection
+                        base_rid,                       # RID
+                        int(time() * 1000),             # Timestamp
+                        base_record.schema_encoding     # Schema Encoding
+                    ]
+                    consolidated_record_data = metadata + latest_record.columns
+
+                # write values to corresponding pages
+                for i, value in enumerate( consolidated_record_data ):
+                    index = consolidated_base_page_set[i].write( value )
+                    offsets[i].append( index )
+                    # if index >= RECORDS_PER_PAGE:
+                    #     break
+
+            num_remaining_base_records -= min( RECORDS_PER_PAGE, num_remaining_base_records )
 
             consolidated_base_pages.append( consolidated_base_page_set )
 
+        page_range_ids = None
+        page_ids = None
+        final_offset = None
+
         # Write to disk
-        for page_idx, page_set in enumerate(consolidated_base_pages):
-            start_idx = page_idx * RECORDS_PER_PAGE
-            records_in_page = min(RECORDS_PER_PAGE, len(base_record_RIDs) - start_idx)
-            
-            # Get locations once for the whole page set
-            page_range_ids, page_ids = self._get_condensed_base_write_locations()
-            #self._update_base_indexes()
-            
-            # Write each page to disk
-            for col_idx, page in enumerate(page_set):
-                if col_idx < len(page_range_ids) and col_idx < len(page_ids):
-                    page_range_id = page_range_ids[col_idx]
-                    page_id = page_ids[col_idx]
-                    self.bufferpool.write_page(page_range_id, page_id, page)
-            
-            # Update page directory for each record in this page
-            for record_idx in range(records_in_page):
-                base_rid = int(base_record_RIDs[start_idx + record_idx])
-                
-                # Get offsets for this record
-                record_offsets = []
-                for col_idx in range(len(offsets)):
-                    if start_idx + record_idx < len(offsets[col_idx]):
-                        record_offsets.append(offsets[col_idx][start_idx + record_idx])
-                    else:
-                        record_offsets.append(0)  # Default value
-                
-                # Update the page directory with tuples (not lists)
-                self.page_directory[base_rid] = (
-                    tuple(page_range_ids),
-                    tuple(page_ids),
-                    tuple(record_offsets)
-                )
-        # TODO : Iterate through consolidated_base_pages and write each page to disk using bufferpool
-            # Using _get_condensed_base_write_locations()
-            # Modeling this part after create_record() function
+        for i, page_set in enumerate( consolidated_base_pages ):
+            page_range_ids, page_ids = self._next_empty_locations()
+            # page_range_id, page_id = self._next_free_location()
+            # self.print_page( page_range_id, page_id, 10 )
+            # return
+
+            # write populated pages to disk
+            for j, page in enumerate( page_set ):
+                # self.print_page( page_range_ids[j], page_ids[j], 10)
+                self.bufferpool._write_to_disk( page_range_ids[j], page_ids[j], page )
+
+            # update page directory
+            # num_base_records_in_page_set = min( len( base_record_RIDs ), len( base_record_RIDs ) - (RECORDS_PER_PAGE * i) )
+            num_base_records_in_page_set = min( RECORDS_PER_PAGE, len( base_record_RIDs ) - (RECORDS_PER_PAGE * i) )
+
+            for j in range( num_base_records_in_page_set ):
+                current_base_record_RID = base_record_RIDs[ (RECORDS_PER_PAGE*i) + j ][0]
+                self.page_directory[ current_base_record_RID ] = ( page_range_ids, page_ids, [j] * len(page_ids) )
+
+                # if j >= RECORDS_PER_PAGE:
+                #     break
+                final_offset = num_base_records_in_page_set
+
+        self._update_base_counters_post_merge( page_range_ids, page_ids, final_offset )
+
+            # TODO : Get bufferpool lock (?)
+            # TODO: TPS
+
+    # Might not be necessary - just delete rid from Index
+
+    # def delete_record(self, base_rid: int):
+    #     """
+    #     Deletes a record by removing it from the page directory and updating relevant metadata.
+    #     If the record is a base record, its tail records will also be handled.
+
+    #     Args:
+    #         base_rid (int): The rid of the record to be deleted.
+    #     """
+    #     base_record = self.get_record(base_rid)
+
+    #     # Ensure the record exists and isn't already deleted
+    #     if base_record is None:
+    #         raise ValueError(f"Record with RID {base_rid} does not exist.")
         
+    #     # Handle deletion of tail records if there are any
+    #     current_tail_record = base_record
+    #     while current_tail_record.indirection != current_tail_record.rid:
+    #         # Get the next tail record
+    #         next_tail_record = self.get_record(current_tail_record.indirection)
+            
+    #         # Mark this tail record for deletion
+    #         self._delete_tail_record(next_tail_record.rid)
+            
+    #         current_tail_record = next_tail_record
+
+    #     # Now, delete the base record
+    #     self._delete_base_record(base_rid)
+
+    #     # Optionally, update any metadata or internal structures to reflect the deleted record
+    #     self.page_directory.pop(base_rid, None)
+
+
+    # def _delete_tail_record(self, tail_rid: int):
+    #     """
+    #     Handles the deletion of a tail record by removing its pages from the buffer pool
+    #     and updating the relevant page directory entries.
+        
+    #     Args:
+    #         tail_rid (int): The rid of the tail record to delete.
+    #     """
+    #     page_range_ids, page_ids, offsets = self.page_directory.get(tail_rid, ([], [], []))
+
+    #     # Loop through all pages related to this tail record and free them
+    #     for page_range_id, page_id, offset in zip(page_range_ids, page_ids, offsets):
+    #         page = self.bufferpool.get_page(page_range_id, page_id)
+    #         if page:
+    #             page.mark_as_deleted()  # You might need a method like this to mark pages as free
+    #             self.bufferpool.write_page(page_range_id, page_id, page)
+
+    #     # Remove the entry from the page directory
+    #     self.page_directory.pop(tail_rid, None)
+
+    # def _delete_base_record(self, base_rid: int):
+    #     """
+    #     Handles the deletion of a base record by updating the record's indirection and schema encoding.
+    #     Removes the record from the page directory.
+
+    #     Args:
+    #         base_rid (int): The rid of the base record to delete.
+    #     """
+    #     base_record = self.get_record(base_rid)
+
+    #     # Mark the base record as deleted (or set its indirection to itself if you want to preserve its space)
+    #     self._write_record_column(base_rid, 0, base_rid)  # Set indirection to itself to signify deletion
+    #     self._write_record_column(base_rid, 3, 0)  # Clear schema encoding (or set to a 'deleted' value)
+
+    #     # Remove the entry from the page directory
+    #     self.page_directory.pop(base_rid, None)
+    
