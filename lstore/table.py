@@ -872,7 +872,7 @@ class Table:
                     latest_record = self.get_latest_record(base_rid)
 
                     metadata = [
-                        base_rid,                       # Indirection
+                        base_record.indirection,        # Indirection
                         base_rid,                       # RID
                         int(time() * 1000),             # Timestamp
                         base_record.schema_encoding     # Schema Encoding
