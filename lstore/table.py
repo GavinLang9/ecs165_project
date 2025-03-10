@@ -267,6 +267,66 @@ class Table:
 
         base_record = self.get_record(base_rid)
         indirection_rid = base_record.indirection
+
+        
+        # Create copy of base record
+        if base_record.schema_encoding == 0:
+            indirection_rid = self.rid_counter
+            tail_rid = self.rid_counter
+            base_schema_encoding = self._convert_int_to_schema_encoding(base_record.schema_encoding)
+            tmp_schema_encoding = [None] * self.num_columns
+            schema_encoding = self._logical_or(base_schema_encoding, tmp_schema_encoding)
+            schema_encoding_int = self._convert_schema_encoding_to_int( schema_encoding )
+
+
+            metadata = [
+                indirection_rid,                   # INDIRECTION (previous tail record's RID)
+                tail_rid,                          # RID
+                int(0 * 1000),                     # TIMESTAMP
+                schema_encoding_int              # SCHEMA ENCODING
+            ]
+
+            record_data = metadata + base_record.columns
+
+            # returns a tuple of lists that hold page range and page indexes for each column
+            page_range_ids, column_page_ids = self._get_tail_write_locations(record_data)
+
+            offsets = [None] * len(record_data)
+            # write each column to their corresponding location in disk
+            for i,(value, page_range_id, page_id) in enumerate(zip(record_data, page_range_ids, column_page_ids)):
+                if value == None:
+                    continue
+                page = self.bufferpool.get_page(page_range_id, page_id)
+
+                if not page:
+                    page = Page()
+
+                if not page.has_capacity():
+                    page = Page()
+                    page_id = self._next_free_page()
+                    if page_id == 0:
+                        page_range_id = self._next_free_page_range()
+                    page_range_ids[i] = page_range_id
+                    column_page_ids[i] = page_id                
+                    # raise IndexError("This page has no space")
+
+                index = page.write(value)
+                offsets[i] = index
+                page.page_type = 'tail'
+                self.bufferpool.write_page(page_range_id, page_id, page)
+
+                # update tail counters
+                self.current_tail_page_range[i] = page_range_id
+                self.current_tail_page[i] = page_id
+            # Update table metadata
+            # pdb.set_trace()
+            self.page_directory[tail_rid] = (page_range_ids, column_page_ids, offsets)
+            self._update_tail_indexes(offsets)
+            self._update_base_record_metadata( base_rid, tail_rid, schema_encoding_int )
+
+            indirection_rid = tail_rid
+        
+
         tail_rid = self.rid_counter
 
         base_schema_encoding = self._convert_int_to_schema_encoding(base_record.schema_encoding)
