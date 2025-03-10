@@ -247,15 +247,6 @@ class Table:
         self.page_directory[rid] = (page_range_ids, column_page_ids, offsets)
         self._update_base_indexes()
 
-        # TODO : REMOVE THIS
-        page = self.bufferpool.get_page( page_range_ids[SCHEMA_ENCODING_COLUMN], column_page_ids[SCHEMA_ENCODING_COLUMN] )
-        if page[ offsets[SCHEMA_ENCODING_COLUMN] ] > 31:
-            print()
-
-        tmp_page_range_IDs, tmp_page_IDs, tmp_offsets = self.page_directory[ rid ]
-        my_page = self.bufferpool.get_page(tmp_page_range_IDs[SCHEMA_ENCODING_COLUMN], tmp_page_IDs[SCHEMA_ENCODING_COLUMN])
-        if my_page[ offsets[SCHEMA_ENCODING_COLUMN] ] > 31:
-            print()
 
     def update_record(self, base_rid, columns):
         """
@@ -278,27 +269,17 @@ class Table:
         indirection_rid = base_record.indirection
         tail_rid = self.rid_counter
 
-        # TODO : REMOVE THIS
-        if base_record.schema_encoding > 31:
-            print()
-            base_record.schema_encoding = 0
-
         base_schema_encoding = self._convert_int_to_schema_encoding(base_record.schema_encoding)
         schema_encoding = self._get_schema_encoding( columns )
         schema_encoding = self._logical_or(base_schema_encoding, schema_encoding)
         # schema_encoding_bytes = self._convert_schema_encoding_to_bytes(schema_encoding)
         schema_encoding_int = self._convert_schema_encoding_to_int( schema_encoding )
 
-        # TODO : REMOVE THIS
-        if schema_encoding_int > 31:
-            print()
-
         metadata = [
             indirection_rid,                   # INDIRECTION (previous tail record's RID)
             tail_rid,                          # RID
             int(0 * 1000),                     # TIMESTAMP
-            # schema_encoding_bytes              # SCHEMA ENCODING
-            schema_encoding_int
+            schema_encoding_int                # SCHEMA ENCODING
         ]
 
         record_data = metadata + list( columns )
@@ -338,7 +319,6 @@ class Table:
         self.page_directory[tail_rid] = (page_range_ids, column_page_ids, offsets)
         self._update_tail_indexes(offsets)
         # self._update_base_record_metadata( base_rid, tail_rid, schema_encoding )
-        # TODO : REMOVE THIS
         self._update_base_record_metadata( base_rid, tail_rid, schema_encoding_int )
         self.num_tail_records += 1
 
@@ -423,10 +403,6 @@ class Table:
         # schema_encoding_int = int.from_bytes(self._convert_schema_encoding_to_bytes(schema_encoding), byteorder='big')
         schema_encoding_int = schema_encoding
 
-        # TODO : REMOVE THIS
-        if schema_encoding_int > 31:
-            print()
-
         self._write_record_column(base_rid, SCHEMA_ENCODING_COLUMN, schema_encoding_int)
 
     def get_record(self, rid: int) -> Record:
@@ -451,15 +427,6 @@ class Table:
             # value = page[offset]
             value = page.__getitem__( offset )
             columns.append(value)
-
-        # TODO : REMOVE THIS
-        if columns[ INDIRECTION_COLUMN ] > self.rid_counter:
-            print()
-
-        if columns[ SCHEMA_ENCODING_COLUMN ] > 31:
-            print()
-
-
 
         record = Record(rid, columns[INDIRECTION_COLUMN], columns[TIMESTAMP_COLUMN], columns[SCHEMA_ENCODING_COLUMN], columns[self.key + NUM_META_COLUMNS], columns[4:]) # 4 columns of metadata followed by key
         return record
@@ -791,7 +758,7 @@ class Table:
             # increment to next page
             page_ID += 1
 
-            if page_ID > PAGE_RANGE_MAX_LEN:
+            if page_ID >= PAGE_RANGE_MAX_LEN:
                 page_ID = 0
                 page_range_ID += 1
 
@@ -837,7 +804,7 @@ class Table:
         # with self.lock:
         # base_record_RIDs = self.index.locate_range(0, 906659770, self.key)
         base_record_RIDs = self.index.locate_range(0, sys.maxsize, self.key)
-        base_record_RIDs = sorted( base_record_RIDs )  # TODO : double check how to correctly sort and interact with base_record_RIDs
+        base_record_RIDs = sorted( base_record_RIDs, key=lambda x: x[0] )
 
         num_pages_per_col = int( (len( base_record_RIDs ) + RECORDS_PER_PAGE - 1) / RECORDS_PER_PAGE )
         num_remaining_base_records = len( base_record_RIDs )
@@ -919,21 +886,6 @@ class Table:
                 final_offset = num_base_records_in_page_set
 
         self._update_base_counters_post_merge( page_range_ids, page_ids, final_offset )
-
-
-
-
-            # Write to disk
-            # for page_set in consolidated_base_pages:
-            #     for i, (page, base_rid) in enumerate(zip(page_set, base_record_RIDs)):
-            #         page_range_ids, page_ids = self._get_base_write_locations()
-            #
-            #         self.bufferpool.write_page(page_range_ids[i], page_ids[i], page)
-            #
-            #         # Remap page directory
-            #         # Extract the ith element from each sublist
-            #         ith_elements = [sublist[i] for sublist in offsets if len(sublist) > i]
-            #         self.page_directory[ base_rid[0] ] = (page_range_ids, page_ids, ith_elements)
 
             # TODO : Get bufferpool lock (?)
             # TODO: TPS
