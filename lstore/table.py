@@ -271,7 +271,7 @@ class Table:
           if len(columns) != self.num_columns:
               raise ValueError("Invalid number of columns")
 
-          base_record = self.get_record(base_rid)
+        base_record = self.get_record(base_rid)
 
         # Create copy of base record for version referencing
         if base_record.indirection == base_record.rid:
