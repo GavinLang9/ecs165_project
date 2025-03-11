@@ -979,6 +979,60 @@ class Table:
         self._update_base_counters_post_merge( page_range_ids, page_ids, final_offset )
         self.max_TPS = max_merged_TPS
 
+        def roll_back(self, base_rid, to_tps):
+            
+            with self.lock:
+                # Get the base record
+                base_record = self.get_record(base_rid)
+                
+                if base_record.indirection == base_record.rid:
+                    return False
+                    
+                if base_record.tps == to_tps:
+                    return True
+                    
+                if to_tps > self.current_TPS:
+                    return False
+                    
+                current_tail_rid = base_record.indirection
+                current_tail_record = self.get_record(current_tail_rid)
+                
+                target_tail_rid = None
+                
+        
+                if to_tps == 0:
+                    # Update the base record's indirection to point to itself
+                    self._write_record_column(base_rid, INDIRECTION_COLUMN, base_rid)
+                    self._write_record_column(base_rid, TPS_COLUMN, 0)
+                    self._write_record_column(base_rid, SCHEMA_ENCODING_COLUMN, 0)
+                    return True
+                    
+                
+                while current_tail_record is not None:
+                    if current_tail_record.tps == to_tps:
+                        target_tail_rid = current_tail_record.rid
+                        break
+                        
+                    
+                    if current_tail_record.tps < to_tps:
+                        return False
+                        
+                    if current_tail_record.indirection == base_rid:
+                        return False
+                        
+                    current_tail_rid = current_tail_record.indirection
+                    current_tail_record = self.get_record(current_tail_rid)
+                
+                if target_tail_rid is None:
+                    return False
+                    
+                self._write_record_column(base_rid, INDIRECTION_COLUMN, target_tail_rid)
+                self._write_record_column(base_rid, TPS_COLUMN, to_tps)
+                
+                target_schema_encoding = current_tail_record.schema_encoding
+                self._write_record_column(base_rid, SCHEMA_ENCODING_COLUMN, target_schema_encoding)
+                
+                return True
             # TODO : Get bufferpool lock (?)
 
     # Might not be necessary - just delete rid from Index
