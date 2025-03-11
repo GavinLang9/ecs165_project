@@ -18,48 +18,41 @@ class LockManager:
         self.transaction_locks = defaultdict(list)
         self.waiting_for = defaultdict(set) 
 
-    def acquire_lock(self, transaction_id, table_id, record_id, lock_type, timeout=1):
+    def acquire_lock(self, transaction_id, table_id, key, lock_type, timeout=3):
         """
-        tries to acquire a lock of the specified type.
-        True if successful, False if it times out or detects a deadlock.
+        tries to acquire a lock
         """
         start_time = time.time()
         wait_event = threading.Event()
         
         while True:
-            # abort if transaction times out
             if time.time() - start_time > timeout:
                 return False 
             
             with self.lock:
-                # if transaction already has equivalent or stronger precedence lock
-                if record_id in self.locks.get(table_id, {}):
-                    record_locks = self.locks[table_id][record_id]
+                if key in self.locks.get(table_id, {}):
+                    record_locks = self.locks[table_id][key]
                     if transaction_id in record_locks:
                         current_lock = record_locks[transaction_id]
-                        # already has exclusive or trying to get shared when already has any lock
                         if current_lock == LockType.EXCLUSIVE or lock_type == LockType.SHARED:
                             return True
 
                 # if lock can be granted
-                if self._can_acquire_lock(transaction_id, table_id, record_id, lock_type):
+                if self._can_acquire_lock(transaction_id, table_id, key, lock_type):
                     if table_id not in self.locks:
                         self.locks[table_id] = {}
-                    if record_id not in self.locks[table_id]:
-                        self.locks[table_id][record_id] = {}
+                    if key not in self.locks[table_id]:
+                        self.locks[table_id][key] = {}
                     
-                    self.locks[table_id][record_id][transaction_id] = lock_type
-                    self.transaction_locks[transaction_id].append((table_id, record_id, lock_type))
-                    
-                    # Clear from waiting list
-                    self.waiting_for[transaction_id].clear()
+                    self.locks[table_id][key][transaction_id] = lock_type
+                    self.transaction_locks[transaction_id].append((table_id, key, lock_type))
+                    self.waiting_for[transaction_id] = {}
                     return True
                 
-                self._update_waiting_for(transaction_id, table_id, record_id)
+                self._update_waiting_for(transaction_id, table_id, key)
                 
-                # if deadlock detected then abort
                 if self._detect_deadlock(transaction_id):
-                    self.waiting_for[transaction_id].clear()
+                    self.waiting_for[transaction_id] = {}
                     return False
             
             wait_event.wait(timeout=0.01)
@@ -69,7 +62,6 @@ class LockManager:
         """
         Checks if a lock can be acquired based on existing locks.
         """
-        # Special handling for table-level locks (inserts)
         if record_id == -1:
             if table_id not in self.locks or -1 not in self.locks[table_id]:
                 return True
@@ -81,8 +73,6 @@ class LockManager:
         
         record_locks = self.locks[table_id][record_id]
         
-        # if this transaction already has a lock and it is shared and trying to get exclusive, then upgrade
-        # only if no other transactions hold locks
         if transaction_id in record_locks:
             current_lock = record_locks[transaction_id]
             if current_lock == LockType.SHARED and lock_type == LockType.EXCLUSIVE:
@@ -114,7 +104,7 @@ class LockManager:
             visited = set()
         
         if transaction_id in visited:
-            return True  # Cycle detected
+            return True
         
         visited.add(transaction_id)
         
@@ -134,13 +124,11 @@ class LockManager:
                     if transaction_id in self.locks[table_id][record_id]:
                         del self.locks[table_id][record_id][transaction_id]
                         
-                        # Clean up empty dictionaries
                         if not self.locks[table_id][record_id]:
                             del self.locks[table_id][record_id]
                         if not self.locks[table_id]:
                             del self.locks[table_id]
             
-            # Clear transaction locks and waiting info
             if transaction_id in self.transaction_locks:
                 del self.transaction_locks[transaction_id]
             if transaction_id in self.waiting_for:
