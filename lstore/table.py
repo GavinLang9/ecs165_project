@@ -20,6 +20,7 @@ class Record:
         self.schema_encoding = schema_encoding
         self.key = key
         self.columns = columns
+        self.merged = False
     
     def __str__(self):
         s = ''
@@ -266,7 +267,21 @@ class Table:
             raise ValueError("Invalid number of columns")
 
         base_record = self.get_record(base_rid)
-        indirection_rid = base_record.indirection
+
+        # Create copy of base record for version referencing
+        if base_record.indirection == base_record.rid:
+            # base_copy_RID = self.rid_counter
+            # self._update_base_record_metadata( base_rid, base_copy_RID, 0 )
+            # base_record = self.get_record( base_rid )
+            # self.update_record( base_rid, base_record.columns )
+            # # self._update_base_record_metadata(base_copy_RID, base_record.rid, 0)
+            self.create_copy_of_base_record( base_rid )
+            base_record = self.get_record( base_rid )
+            # self.print_record_history( base_rid )
+
+
+        latest_record = self.get_latest_record( base_rid )
+        indirection_rid = latest_record.rid
         tail_rid = self.rid_counter
 
         base_schema_encoding = self._convert_int_to_schema_encoding(base_record.schema_encoding)
@@ -320,10 +335,82 @@ class Table:
         self._update_tail_indexes(offsets)
         # self._update_base_record_metadata( base_rid, tail_rid, schema_encoding )
         self._update_base_record_metadata( base_rid, tail_rid, schema_encoding_int )
-        self.num_tail_records += 1
 
-        if self.num_tail_records % MERGE_FREQUENCY == 0:
+        self.num_tail_records += 1
+        if self.num_tail_records % MERGE_FREQUENCY == 0 or self.num_tail_records % MERGE_FREQUENCY == 1:
             self.__merge()
+
+    def create_copy_of_base_record( self, base_rid ):
+        """
+        Creates a copy of the base record by writing columns to their corresponding tail pages
+        and updating the base record indirection.
+
+        Args:
+            base_rid (int): rid of record to be updated
+        """
+
+        # create meta data columns
+        base_record = self.get_record( base_rid )
+
+        # Create copy of base record for version referencing
+        # TODO : REMOVE THIS
+        # if base_record.indirection == base_record.rid:
+        #     base_copy_RID = self.rid_counter
+        #     self._update_base_record_metadata( base_record.rid, base_copy_RID, 0 )
+        #     base_record = self.get_record( base_rid )
+        #     self.update_record( base_record.rid, base_record.columns )
+            # self._update_base_record_metadata(base_copy_RID, base_record.rid, 0)
+
+        indirection_rid = base_record.rid
+        tail_rid = self.rid_counter
+
+        metadata = [
+            indirection_rid,    # INDIRECTION (previous tail record's RID)
+            tail_rid,           # RID
+            int(0 * 1000),      # TIMESTAMP
+            0                   # SCHEMA ENCODING
+        ]
+
+        record_data = metadata + list( base_record.columns )
+
+        # returns a tuple of lists that hold page range and page indexes for each column
+        page_range_ids, column_page_ids = self._get_tail_write_locations(record_data)
+
+        offsets = [None] * len(record_data)
+        # write each column to their corresponding location in disk
+        for i,(value, page_range_id, page_id) in enumerate(zip(record_data, page_range_ids, column_page_ids)):
+            if value == None:
+                continue
+            page = self.bufferpool.get_page(page_range_id, page_id)
+
+            if not page:
+                page = Page()
+
+            if not page.has_capacity():
+                page = Page()
+                page_id = self._next_free_page()
+                if page_id == 0:
+                    page_range_id = self._next_free_page_range()
+                page_range_ids[i] = page_range_id
+                column_page_ids[i] = page_id
+                # raise IndexError("This page has no space")
+
+            index = page.write(value)
+            offsets[i] = index
+            page.page_type = 'tail'
+            self.bufferpool.write_page(page_range_id, page_id, page)
+
+            # update tail counters
+            self.current_tail_page_range[i] = page_range_id
+            self.current_tail_page[i] = page_id
+        # Update table metadata
+        self.page_directory[tail_rid] = (page_range_ids, column_page_ids, offsets)
+        self._update_tail_indexes(offsets)
+        self._update_base_record_metadata( base_rid, tail_rid, 0 )
+        self.num_tail_records += 1
+        #
+        # if self.num_tail_records % MERGE_FREQUENCY == 0:
+        #     self.__merge()
 
     def get_latest_record(self, base_rid: int) -> Record:
         """
@@ -356,9 +443,18 @@ class Table:
             current_tail_record = next_tail_record
 
         latest_tail_record = Record(None, None, None, None, None, columns)
+
+
         # Using cumulative tail records
         # Fill in all None values with base record values
         latest_tail_record = self._get_cumulative_tail_record_columns(latest_tail_record, base_record)
+
+        latest_tail_record = Record(current_tail_record.rid,
+                                    current_tail_record.indirection,
+                                    current_tail_record.timestamp,
+                                    current_tail_record.schema_encoding,
+                                    latest_tail_record.columns[ self.key ],
+                                    latest_tail_record.columns)
 
         return latest_tail_record
 
@@ -704,6 +800,22 @@ class Table:
                 if page_id == 0:
                     page_range_id += 1
                 current_offset = page_range_id * PAGE_RANGE_MAX_LEN * (PAGE_SIZE +16) +(page_id * (PAGE_SIZE + 16))
+
+    def print_record_history( self, base_rid ):
+        """
+        Used for debugging: prints base record and all subsequent updates
+        """
+
+        print( "\nPrinting record history of base RID", base_rid, ":")
+        base_record = self.get_record( base_rid )
+        print( base_record )
+
+        print( "Updates in descending order: " )
+        record = base_record
+        while record.indirection != base_rid:
+            record = self.get_record( record.indirection )
+            print( record )
+
 
     def print_page( self, page_range_id, page_id, num_records_to_print=RECORDS_PER_PAGE ):
         """
