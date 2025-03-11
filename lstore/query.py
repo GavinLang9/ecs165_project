@@ -124,7 +124,7 @@ class Query:
         final_records = []
         for record in record_list:
             tmp_columns = list( column for column, include in zip( list(record.columns), projected_columns_index ) if include == 1 )
-            final_records.append( Record( record.rid, record.indirection, record.schema_encoding, record.key, tmp_columns ) )
+            final_records.append( Record( record.rid, record.indirection, record.timestamp, record.schema_encoding, record.key, tmp_columns ) )
 
         return final_records
 
@@ -153,20 +153,24 @@ class Query:
 
         # Get latest records for the base RIDs
         latest_record_list = [self.table.get_latest_record(rid) for rid in rid_list]
-        
-        if relative_version == 0:  # Fetch the latest version
+
+        # Fetch the latest version
+        if relative_version == 0:
             return latest_record_list
+
         base_record_list = [self.table.get_record(rid) for rid in rid_list]
         tail_record_list = [self.table.get_record(base_record.indirection) for base_record in base_record_list]
         final_records = []
+
         for i, record in enumerate(tail_record_list):
             current_rid = record.rid
             current_record = record  # Start from the latest record
+            base_rid = base_record_list[ i ].rid
         
             # Traverse backwards through previous versions
-            for step in range(abs(relative_version)):  
+            for step in range( abs(relative_version) ):
                 
-                if current_record.indirection is None or current_record.indirection == current_rid:  
+                if current_record.indirection is None or current_record.indirection == current_rid or current_record.indirection == base_rid:
                     break  # Stop if no more history exists
                 
                 previous_record = self.table.get_record(current_record.indirection)
@@ -178,7 +182,7 @@ class Query:
 
             # Apply column projection
             tmp_columns = list(column for column, include in zip(list(current_record.columns), projected_columns_index) if include == 1)
-            final_records.append(Record(current_record.rid, current_record.indirection, current_record.schema_encoding, current_record.key, tmp_columns))
+            final_records.append(Record(current_record.rid, current_record.indirection, current_record.timestamp, current_record.schema_encoding, current_record.key, tmp_columns))
 
         return final_records
         
@@ -306,3 +310,6 @@ class Query:
         if table.index == None:
             return Index(table)
         return table.index
+
+    def print_record_history( self, base_rid ):
+        self.table.print_record_history( base_rid )

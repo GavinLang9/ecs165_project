@@ -26,6 +26,9 @@ class Page:
         value = int.from_bytes(byte_value, byteorder='big')  # Added byteorder here
         return value
 
+    def is_empty(self) -> bool:
+        return self.num_records == 0
+
     def has_capacity(self) -> bool:
         return self.num_records * self.record_size < PAGE_SIZE
 
