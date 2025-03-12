@@ -11,7 +11,7 @@ from lstore.config import *
 import struct
 import threading
 
-MERGE_FREQUENCY = RECORDS_PER_PAGE  # runs __merge() every x record updates
+MERGE_FREQUENCY = RECORDS_PER_PAGE * 3  # runs __merge() every x record updates
 
 class Record:
     def __init__(self, rid, indirection, tps, schema_encoding, key, columns):
@@ -67,6 +67,7 @@ class Table:
 
         self.latest_page_range = 0
         self.latest_page = 0
+
         pass
 
     def serialize(self):
@@ -417,8 +418,8 @@ class Table:
         if base_record.indirection == base_record.rid or base_record.tps <= self.max_TPS:
             return base_record
 
-        latest_tail_record = self.get_record(base_record.indirection)
         current_tail_record = self.get_record(base_record.indirection)
+        tmp_record = current_tail_record = self.get_record(base_record.indirection)
 
         columns = current_tail_record.columns
 
@@ -431,19 +432,19 @@ class Table:
                     columns[index] = col
             current_tail_record = next_tail_record
 
-        tmp_tail_record = Record(None, None, None, None, None, columns)
+        latest_tail_record = Record(None, None, None, None, None, columns)
 
 
         # Using cumulative tail records
         # Fill in all None values with base record values
-        tmp_tail_record = self._get_cumulative_tail_record_columns(tmp_tail_record, base_record)
+        latest_tail_record = self._get_cumulative_tail_record_columns(latest_tail_record, base_record)
 
-        latest_tail_record = Record(latest_tail_record.rid,
-                                    latest_tail_record.indirection,
-                                    latest_tail_record.tps,
-                                    latest_tail_record.schema_encoding,
-                                    tmp_tail_record.columns[ self.key ],
-                                    tmp_tail_record.columns)
+        latest_tail_record = Record(tmp_record.rid,
+                                    tmp_record.indirection,
+                                    tmp_record.tps,
+                                    tmp_record.schema_encoding,
+                                    latest_tail_record.columns[ self.key ],
+                                    latest_tail_record.columns)
 
         return latest_tail_record
 
@@ -866,8 +867,8 @@ class Table:
         return ( page_range_IDs, page_IDs )
 
     def _update_base_counters_post_merge( self, page_range_IDs, page_IDs, offset ):
-        self.current_base_page_range = min( page_range_IDs )
-        self.current_base_page = min( page_IDs )
+        self.current_base_page_range = max( page_range_IDs )
+        self.current_base_page = max( page_IDs )
         self.current_base_offset = offset
 
         # if page is full, move on to next
@@ -898,7 +899,7 @@ class Table:
             To change merge frequency, update MERGE_FREQUENCY variable
         """
 
-        print("Merge is happening...")
+        #print("Merge is happening...")
 
         # NOTE: merge function currently occurs every 15 updates
         # TODO : get lock (?)
@@ -907,8 +908,13 @@ class Table:
         base_record_RIDs = self.index.locate_range(0, sys.maxsize, self.key)
         base_record_RIDs = sorted( base_record_RIDs, key=lambda x: x[0] )
 
-        num_pages_per_col = int( (len( base_record_RIDs ) + RECORDS_PER_PAGE - 1) / RECORDS_PER_PAGE )
-        num_remaining_base_records = len( base_record_RIDs )
+        # num_pages_per_col = int( (len( base_record_RIDs ) + RECORDS_PER_PAGE - 1) / RECORDS_PER_PAGE )
+        num_pages_per_col = int( len( base_record_RIDs ) / RECORDS_PER_PAGE )
+        
+        # num_remaining_base_records = len( base_record_RIDs )
+        num_remaining_base_records = len( base_record_RIDs ) - (len(base_record_RIDs) % RECORDS_PER_PAGE)
+        
+        
         offsets = [ [] for _ in range(self.num_columns + NUM_META_COLUMNS) ]
 
         max_merged_TPS = 0
@@ -948,6 +954,8 @@ class Table:
                     index = consolidated_base_page_set[i].write( value )
                     offsets[i].append( index )
 
+            if num_remaining_base_records % RECORDS_PER_PAGE:
+                raise ValueError("REMAINING RECORDS")
             num_remaining_base_records -= min( RECORDS_PER_PAGE, num_remaining_base_records )
 
             consolidated_base_pages.append( consolidated_base_page_set )
@@ -969,13 +977,13 @@ class Table:
                 self.bufferpool._write_to_disk( page_range_ids[j], page_ids[j], page )
 
             # update page directory
-            num_base_records_in_page_set = min( RECORDS_PER_PAGE, len( base_record_RIDs ) - (RECORDS_PER_PAGE * i) )
+            num_base_records_in_page_set = min( RECORDS_PER_PAGE, (len( base_record_RIDs ) - (len( base_record_RIDs ) % RECORDS_PER_PAGE))- (RECORDS_PER_PAGE * i) )
 
             for j in range( num_base_records_in_page_set ):
                 current_base_record_RID = base_record_RIDs[ (RECORDS_PER_PAGE*i) + j ][0]
                 self.page_directory[ current_base_record_RID ] = ( page_range_ids, page_ids, [j] * len(page_ids) )
 
-                final_offset = num_base_records_in_page_set
+            final_offset = num_base_records_in_page_set
 
         self._update_base_counters_post_merge( page_range_ids, page_ids, final_offset )
         self.max_TPS = max_merged_TPS
