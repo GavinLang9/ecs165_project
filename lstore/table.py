@@ -897,6 +897,9 @@ class Table:
             To change merge frequency, update MERGE_FREQUENCY variable
         """
 
+        if self.max_TPS == -1:
+            return
+
         print("Merge is happening...")
 
         # NOTE: merge function currently occurs every 15 updates
@@ -904,10 +907,12 @@ class Table:
         # with self.lock:
         # base_record_RIDs = self.index.locate_range(0, 906659770, self.key)
         base_record_RIDs = self.index.locate_range(0, sys.maxsize, self.key)
-        base_record_RIDs = sorted( base_record_RIDs, key=lambda x: x[0] )
 
-        num_pages_per_col = int( (len( base_record_RIDs ) + RECORDS_PER_PAGE - 1) / RECORDS_PER_PAGE )
-        num_remaining_base_records = len( base_record_RIDs )
+        base_records = [ base_record for base_record_RID in base_record_RIDs if ( base_record := self.get_record( base_record_RID[0] ) ).tps >= self.max_TPS ]
+        base_records = sorted( base_records, key=lambda x: x.rid )
+
+        num_pages_per_col = int( (len( base_records ) + RECORDS_PER_PAGE - 1) / RECORDS_PER_PAGE )
+        num_remaining_base_records = len( base_records )
         offsets = [ [] for _ in range(self.num_columns + NUM_META_COLUMNS) ]
 
         max_merged_TPS = 0
@@ -920,27 +925,20 @@ class Table:
             # populate pages with condensed base records
             num_base_records_to_add = min( RECORDS_PER_PAGE, num_remaining_base_records )  # makes sure pages don't overflow
             for base_record_idx in range( num_base_records_to_add ):
-                # get latest record
-                base_rid = base_record_RIDs[ (page_idx * RECORDS_PER_PAGE) + base_record_idx ][ 0 ]
-
                 # create consolidated base record
-                base_record = self.get_record( base_rid )
+                current_idx = (page_idx * RECORDS_PER_PAGE) + base_record_idx
 
                 metadata = [
-                    base_record.indirection,
-                    base_record.rid,
-                    base_record.tps,
-                    base_record.schema_encoding
+                    base_records[ current_idx ].indirection,
+                    base_records[ current_idx ].rid,
+                    base_records[ current_idx ].tps,
+                    base_records[ current_idx ].schema_encoding
                 ]
 
-                # if base record has no updates, don't update columns
-                if base_record.indirection == base_record.rid or base_record.tps <= self.max_TPS:
-                    consolidated_record_data = metadata + base_record.columns
-                else:
-                    latest_record = self.get_latest_record(base_rid)
-                    consolidated_record_data = metadata + latest_record.columns
+                latest_record = self.get_latest_record( base_records[ current_idx ].rid )
+                consolidated_record_data = metadata + latest_record.columns
 
-                max_merged_TPS = max( max_merged_TPS, base_record.tps )
+                max_merged_TPS = max( max_merged_TPS, latest_record.tps )
 
                 # write values to corresponding pages
                 for i, value in enumerate( consolidated_record_data ):
@@ -968,10 +966,10 @@ class Table:
                 self.bufferpool._write_to_disk( page_range_ids[j], page_ids[j], page )
 
             # update page directory
-            num_base_records_in_page_set = min( RECORDS_PER_PAGE, len( base_record_RIDs ) - (RECORDS_PER_PAGE * i) )
+            num_base_records_in_page_set = min( RECORDS_PER_PAGE, len( base_records ) - (RECORDS_PER_PAGE * i) )
 
             for j in range( num_base_records_in_page_set ):
-                current_base_record_RID = base_record_RIDs[ (RECORDS_PER_PAGE*i) + j ][0]
+                current_base_record_RID = base_records[ (RECORDS_PER_PAGE*i) + j ].rid
                 self.page_directory[ current_base_record_RID ] = ( page_range_ids, page_ids, [j] * len(page_ids) )
 
                 final_offset = num_base_records_in_page_set
