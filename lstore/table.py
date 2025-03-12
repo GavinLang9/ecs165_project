@@ -417,6 +417,7 @@ class Table:
         if base_record.indirection == base_record.rid or base_record.tps <= self.max_TPS:
             return base_record
 
+        latest_tail_record = self.get_record(base_record.indirection)
         current_tail_record = self.get_record(base_record.indirection)
 
         columns = current_tail_record.columns
@@ -430,19 +431,19 @@ class Table:
                     columns[index] = col
             current_tail_record = next_tail_record
 
-        latest_tail_record = Record(None, None, None, None, None, columns)
+        tmp_tail_record = Record(None, None, None, None, None, columns)
 
 
         # Using cumulative tail records
         # Fill in all None values with base record values
-        latest_tail_record = self._get_cumulative_tail_record_columns(latest_tail_record, base_record)
+        tmp_tail_record = self._get_cumulative_tail_record_columns(tmp_tail_record, base_record)
 
-        latest_tail_record = Record(current_tail_record.rid,
-                                    current_tail_record.indirection,
-                                    current_tail_record.tps,
-                                    current_tail_record.schema_encoding,
-                                    latest_tail_record.columns[ self.key ],
-                                    latest_tail_record.columns)
+        latest_tail_record = Record(latest_tail_record.rid,
+                                    latest_tail_record.indirection,
+                                    latest_tail_record.tps,
+                                    latest_tail_record.schema_encoding,
+                                    tmp_tail_record.columns[ self.key ],
+                                    tmp_tail_record.columns)
 
         return latest_tail_record
 
