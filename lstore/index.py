@@ -73,13 +73,23 @@ class Index:
     # Returns the RIDs of all records with values in column "column" between "begin" and "end"
     """
 
-    def locate_range(self, begin, end, column):
-        # if column has not been created
+    def locate_range(self, column, start_range, end_range):
+        # Check if column index is valid
+        if column < 0 or column >= len(self.indices):
+            return []
+        
+        # Check if the index for this column exists
         if self.indices[column] is None:
-            return None
-
-        return self.indices[ column ].get_range(begin, end)
-
+            return []
+        
+        # Get all RIDs in the range
+        rids = []
+        for key in range(start_range, end_range + 1):
+            # Make sure the key exists in the index
+            if key in self.indices[column]:
+                rids.extend(self.indices[column][key])
+        
+        return rids
     """
     # optional: Create index on specific column
     """

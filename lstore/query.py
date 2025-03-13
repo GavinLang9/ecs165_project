@@ -104,28 +104,34 @@ class Query:
         # Fail if search_key_index is out of bounds
         if search_key_index < 0 or search_key_index >= self.table.num_columns:
             return False
-
+        
         # Fail if projected_columns_index does not match number of columns
-        if len( projected_columns_index ) != self.table.num_columns:
+        if len(projected_columns_index) != self.table.num_columns:
             return False
-
+        
         # get all RIDs of records that match search criteria
         rid_list = self.index.locate(search_key_index, search_key)
-
         if rid_list is None:
             return []
         
         # get all Record objects from rid_list
         record_list = []
         for rid in rid_list:
-            record_list.append( self.table.get_latest_record( rid ) )
-
+            latest_record = self.table.get_latest_record(rid)
+            # Only add record if it exists
+            if latest_record is not None:
+                record_list.append(latest_record)
+        
+        # If no valid records found, return empty list
+        if not record_list:
+            return []
+        
         # apply projected_columns_index
         final_records = []
         for record in record_list:
-            tmp_columns = list( column for column, include in zip( list(record.columns), projected_columns_index ) if include == 1 )
-            final_records.append( Record( record.rid, record.indirection, record.tps, record.schema_encoding, record.key, tmp_columns ) )
-
+            tmp_columns = list(column for column, include in zip(list(record.columns), projected_columns_index) if include == 1)
+            final_records.append(Record(record.rid, record.indirection, record.tps, record.schema_encoding, record.key, tmp_columns))
+        
         return final_records
 
     """

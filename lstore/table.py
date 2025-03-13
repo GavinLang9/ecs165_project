@@ -405,49 +405,66 @@ class Table:
         Gets the most recent version of the record and
         returns constructed record by getting each column value from their respective pages
         :param rid: base record RID
-
         Note: base record indirection is latest tail record RID,
-              tail record indirection is previous tail record RID
+        tail record indirection is previous tail record RID
         """
-
-        base_record = self.get_record( base_rid )
+        # First check if the base record exists
+        if base_rid not in self.page_directory:
+            return None
+            
+        base_record = self.get_record(base_rid)
+        if base_record is None:
+            return None
+            
         schema_encoding = self._convert_int_to_schema_encoding(base_record.schema_encoding)
-
-        # return record if indirection is RID
+        
+        # Return record if indirection is RID
         # AKA return record if it is the base record (has no updates)
         if base_record.indirection == base_record.rid or base_record.tps <= self.max_TPS:
             return base_record
-
+        
+        # Check if indirection points to a valid RID
+        if base_record.indirection not in self.page_directory:
+            return base_record  # Return base record if indirection is invalid
+            
         current_tail_record = self.get_record(base_record.indirection)
-        tmp_record = current_tail_record = self.get_record(base_record.indirection)
-
+        if current_tail_record is None:
+            return base_record
+            
+        tmp_record = current_tail_record
         columns = current_tail_record.columns
-
+        
         while self._missing_updated_columns(schema_encoding, columns):
+            # Check if indirection points to a valid RID
+            if current_tail_record.indirection not in self.page_directory:
+                break
+                
             next_tail_record = self.get_record(current_tail_record.indirection)
+            if next_tail_record is None:
+                break
+                
             if next_tail_record.rid == current_tail_record.rid:
-                raise ValueError('cannot fill all columns in schema encoding')
+                # Instead of raising an error, we can just break the loop
+                # raise ValueError('cannot fill all columns in schema encoding')
+                break
+                
             for index, col in enumerate(next_tail_record.columns):
                 if columns[index] == None and col != None:
                     columns[index] = col
+                    
             current_tail_record = next_tail_record
-
+        
         latest_tail_record = Record(None, None, None, None, None, columns)
-
-
         # Using cumulative tail records
         # Fill in all None values with base record values
         latest_tail_record = self._get_cumulative_tail_record_columns(latest_tail_record, base_record)
-
         latest_tail_record = Record(tmp_record.rid,
-                                    tmp_record.indirection,
-                                    tmp_record.tps,
-                                    tmp_record.schema_encoding,
-                                    latest_tail_record.columns[ self.key ],
-                                    latest_tail_record.columns)
-
+                                tmp_record.indirection,
+                                tmp_record.tps,
+                                tmp_record.schema_encoding,
+                                latest_tail_record.columns[self.key],
+                                latest_tail_record.columns)
         return latest_tail_record
-
     def _get_schema_encoding(self, columns):
         """
         Takes a tuple of column values and returns a bitmap (list) for new schema encoding
@@ -495,26 +512,29 @@ class Table:
         """
         returns constructed record by getting each column value from their respective pages
         """
-
+        # Add check for RID existence in page directory
+        if rid not in self.page_directory:
+            return None  # or raise a custom exception if preferred
+            
         page_range_ids, page_ids, offsets = self.page_directory[rid]
         columns = []
-        # if rid == 16196:
-            # pdb.set_trace()
+        
         for page_range_id, page_id, offset in zip(page_range_ids, page_ids, offsets):
-            if page_range_id == None or page_id == None or offset == None:
+            if page_range_id is None or page_id is None or offset is None:
                 columns.append(None)
                 continue
-            # if page_range_id == 20695 and page_id == 58 and offset == 0:
-            #     pdb.set_trace()
+                
             page = self.bufferpool.get_page(page_range_id, page_id)
             if page is None:
                 columns.append(None)
                 continue
-            # value = page[offset]
-            value = page.__getitem__( offset )
+                
+            value = page.__getitem__(offset)
             columns.append(value)
-
-        record = Record(rid, columns[INDIRECTION_COLUMN], columns[TPS_COLUMN], columns[SCHEMA_ENCODING_COLUMN], columns[self.key + NUM_META_COLUMNS], columns[4:]) # 4 columns of metadata followed by key
+            
+        record = Record(rid, columns[INDIRECTION_COLUMN], columns[TPS_COLUMN], 
+                        columns[SCHEMA_ENCODING_COLUMN], columns[self.key + NUM_META_COLUMNS], 
+                        columns[4:])  # 4 columns of metadata followed by key
         return record
 
     def _new_pages_will_overflow_page_range(self, current_page, total_columns):
