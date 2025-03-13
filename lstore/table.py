@@ -269,75 +269,75 @@ class Table:
           # create meta data columns
           # if self.rid_counter == 3048:
           #     pdb.set_trace()
-          if len(columns) != self.num_columns:
-              raise ValueError("Invalid number of columns")
+            if len(columns) != self.num_columns:
+                raise ValueError("Invalid number of columns")
+        
+            base_record = self.get_record(base_rid)
 
-        base_record = self.get_record(base_rid)
-
-        # Create copy of base record for version referencing
-        if base_record.indirection == base_record.rid:
-            self.create_copy_of_base_record( base_rid )
-            base_record = self.get_record( base_rid )
-            # self.print_record_history( base_rid )
+            # Create copy of base record for version referencing
+            if base_record.indirection == base_record.rid:
+                self.create_copy_of_base_record( base_rid )
+                base_record = self.get_record( base_rid )
+                # self.print_record_history( base_rid )
 
 
-        latest_record = self.get_latest_record( base_rid )
-        indirection_rid = latest_record.rid
-        tail_rid = self.rid_counter
+            latest_record = self.get_latest_record( base_rid )
+            indirection_rid = latest_record.rid
+            tail_rid = self.rid_counter
 
-        base_schema_encoding = self._convert_int_to_schema_encoding(base_record.schema_encoding)
-        schema_encoding = self._get_schema_encoding( columns )
-        schema_encoding = self._logical_or(base_schema_encoding, schema_encoding)
-        schema_encoding_int = self._convert_schema_encoding_to_int( schema_encoding )
+            base_schema_encoding = self._convert_int_to_schema_encoding(base_record.schema_encoding)
+            schema_encoding = self._get_schema_encoding( columns )
+            schema_encoding = self._logical_or(base_schema_encoding, schema_encoding)
+            schema_encoding_int = self._convert_schema_encoding_to_int( schema_encoding )
 
-        metadata = [
-            indirection_rid,                   # INDIRECTION (previous tail record's RID)
-            tail_rid,                          # RID
-            self.current_TPS,                  # TPS
-            schema_encoding_int                # SCHEMA ENCODING
-        ]
+            metadata = [
+                indirection_rid,                   # INDIRECTION (previous tail record's RID)
+                tail_rid,                          # RID
+                self.current_TPS,                  # TPS
+                schema_encoding_int                # SCHEMA ENCODING
+            ]
 
-        record_data = metadata + list( columns )
+            record_data = metadata + list( columns )
 
-        # returns a tuple of lists that hold page range and page indexes for each column
-        page_range_ids, column_page_ids = self._get_tail_write_locations(record_data)
+            # returns a tuple of lists that hold page range and page indexes for each column
+            page_range_ids, column_page_ids = self._get_tail_write_locations(record_data)
 
-        offsets = [None] * len(record_data)
-        # write each column to their corresponding location in disk
-        for i,(value, page_range_id, page_id) in enumerate(zip(record_data, page_range_ids, column_page_ids)):
-            if value == None:
-                continue
-            page = self.bufferpool.get_page(page_range_id, page_id)
+            offsets = [None] * len(record_data)
+            # write each column to their corresponding location in disk
+            for i,(value, page_range_id, page_id) in enumerate(zip(record_data, page_range_ids, column_page_ids)):
+                if value == None:
+                    continue
+                page = self.bufferpool.get_page(page_range_id, page_id)
 
-            if not page:
-                page = Page()
+                if not page:
+                    page = Page()
 
-            if not page.has_capacity():
-                page = Page()
-                page_id = self._next_free_page()
-                if page_id == 0:
-                    page_range_id = self._next_free_page_range()
-                page_range_ids[i] = page_range_id
-                column_page_ids[i] = page_id
-                # raise IndexError("This page has no space")
+                if not page.has_capacity():
+                    page = Page()
+                    page_id = self._next_free_page()
+                    if page_id == 0:
+                        page_range_id = self._next_free_page_range()
+                    page_range_ids[i] = page_range_id
+                    column_page_ids[i] = page_id
+                    # raise IndexError("This page has no space")
 
-            index = page.write(value)
-            offsets[i] = index
-            page.page_type = 'tail'
-            self.bufferpool.write_page(page_range_id, page_id, page)
+                index = page.write(value)
+                offsets[i] = index
+                page.page_type = 'tail'
+                self.bufferpool.write_page(page_range_id, page_id, page)
 
-            # update tail counters
-            self.current_tail_page_range[i] = page_range_id
-            self.current_tail_page[i] = page_id
-        # Update table metadata
-        # pdb.set_trace()
-        self.page_directory[tail_rid] = (page_range_ids, column_page_ids, offsets)
-        self._update_tail_indexes(offsets)
-        self._update_base_record_metadata( base_rid, tail_rid, self.current_TPS, schema_encoding_int )
+                # update tail counters
+                self.current_tail_page_range[i] = page_range_id
+                self.current_tail_page[i] = page_id
+            # Update table metadata
+            # pdb.set_trace()
+            self.page_directory[tail_rid] = (page_range_ids, column_page_ids, offsets)
+            self._update_tail_indexes(offsets)
+            self._update_base_record_metadata( base_rid, tail_rid, self.current_TPS, schema_encoding_int )
 
-        self.current_TPS += 1
-        if self.current_TPS % MERGE_FREQUENCY == 0 or self.current_TPS % MERGE_FREQUENCY == 1:
-            self.__merge()
+            self.current_TPS += 1
+            if self.current_TPS % MERGE_FREQUENCY == 0 or self.current_TPS % MERGE_FREQUENCY == 1:
+                self.__merge()
 
     def create_copy_of_base_record( self, base_rid ):
         """
