@@ -990,6 +990,11 @@ class Table:
 
             # TODO : Get bufferpool lock (?)
 
+    def transaction_get_record( self, key ):
+        rid = self.index.locate(self.key, key)
+        record = self.get_latest_record(rid[0])
+        return record.columns
+
     # Might not be necessary - just delete rid from Index
 
     # def delete_record(self, base_rid: int):
