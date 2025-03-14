@@ -870,8 +870,8 @@ class Table:
         return ( page_range_IDs, page_IDs )
 
     def _update_base_counters_post_merge( self, page_range_IDs, page_IDs, offset ):
-        self.current_base_page_range = min( page_range_IDs )
-        self.current_base_page = min( page_IDs )
+        self.current_base_page_range = max( page_range_IDs )
+        self.current_base_page = max( page_IDs )
         self.current_base_offset = offset
 
         # if page is full, move on to next
