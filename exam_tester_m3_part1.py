@@ -4,6 +4,7 @@ from lstore.transaction import Transaction
 from lstore.transaction_worker import TransactionWorker
 
 from random import choice, randint, sample, seed
+import time
 
 db = Database()
 db.open('./ECS165')
@@ -53,7 +54,7 @@ for i in range(num_threads):
 for i in range(number_of_transactions):
     transaction_workers[i % num_threads].add_transaction(insert_transactions[i])
 
-
+insertion_begin = time.time()
 
 # run transaction workers
 for i in range(num_threads):
@@ -63,6 +64,7 @@ for i in range(num_threads):
 for i in range(num_threads):
     transaction_workers[i].join()
 
+insertion_end = time.time()
 
 # Check inserted records using select query in the main thread outside workers
 for key in keys:
@@ -80,3 +82,5 @@ print("Select finished")
 
 
 db.close()
+
+print(f"Concurrent Insertion Took: {insertion_end - insertion_begin} seconds")

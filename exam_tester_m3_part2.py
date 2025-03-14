@@ -5,6 +5,8 @@ from lstore.transaction_worker import TransactionWorker
 
 from random import choice, randint, sample, seed
 
+import time
+
 db = Database()
 db.open('./ECS165')
 
@@ -66,7 +68,7 @@ print("Update finished")
 for i in range(number_of_transactions):
     transaction_workers[i % num_threads].add_transaction(transactions[i])
 
-
+update_start = time.time()
 
 # run transaction workers
 for i in range(num_threads):
@@ -76,6 +78,7 @@ for i in range(num_threads):
 for i in range(num_threads):
     transaction_workers[i].join()
 
+update_end = time.time()
 
 score = len(keys)
 for key in keys:
@@ -143,3 +146,5 @@ for i in range(0, number_of_aggregates):
 print("Aggregate version 0 finished. Valid Aggregations: ", valid_sums, '/', number_of_aggregates)
 
 db.close()
+
+print(f"Concurrent Update Took: {update_end- update_start} seconds")
