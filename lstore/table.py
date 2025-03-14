@@ -422,6 +422,7 @@ class Table:
             return base_record
 
         current_tail_record = self.get_record(base_record.indirection)
+        tmp_record = current_tail_record
 
         columns = current_tail_record.columns
 
@@ -441,10 +442,10 @@ class Table:
         # Fill in all None values with base record values
         latest_tail_record = self._get_cumulative_tail_record_columns(latest_tail_record, base_record)
 
-        latest_tail_record = Record(current_tail_record.rid,
-                                    current_tail_record.indirection,
-                                    current_tail_record.tps,
-                                    current_tail_record.schema_encoding,
+        latest_tail_record = Record(tmp_record.rid,
+                                    tmp_record.indirection,
+                                    tmp_record.tps,
+                                    tmp_record.schema_encoding,
                                     latest_tail_record.columns[ self.key ],
                                     latest_tail_record.columns)
 
@@ -902,7 +903,7 @@ class Table:
             values[RID_COLUMN],
             values[INDIRECTION_COLUMN],
             values[TPS_COLUMN],
-            values[INDIRECTION_COLUMN],
+            values[SCHEMA_ENCODING_COLUMN],
             values[self.key + NUM_META_COLUMNS],
             values[NUM_META_COLUMNS:]
         )
