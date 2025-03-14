@@ -931,16 +931,6 @@ class Table:
             if base_record.tps <= self.max_TPS:
                 continue
 
-            # latest_tail_record = self._get_local_record( necessary_pages, base_record.indirection )
-            # consolidated_record = Record(
-            #     base_record.rid,
-            #     base_record.indirection,
-            #     base_record.tps,
-            #     base_record.schema_encoding,
-            #     latest_tail_record.key,
-            #     latest_tail_record.columns
-            # )
-
             consolidated_records.append( base_record )
 
         return consolidated_records
@@ -967,31 +957,10 @@ class Table:
             if None in base_page_range_IDs: continue
             if None in base_page_IDs: continue
 
-            # keep track of all indirection pages
-            # if ( base_page_range_IDs[INDIRECTION_COLUMN], base_page_IDs[INDIRECTION_COLUMN] ) not in indirection_pages:
-            #     indirection_pages.append( (base_page_range_IDs[INDIRECTION_COLUMN], base_page_IDs[INDIRECTION_COLUMN]) )
-
             # store all old base pages in necessary_pages dict
             for page_range_ID, page_ID in zip(base_page_range_IDs, base_page_IDs):
                 if (page_range_ID, page_ID) not in necessary_pages:
                     necessary_pages[(page_range_ID, page_ID)] = self.bufferpool.get_page(page_range_ID, page_ID)
-
-        # add all indirected tail pages to necessary_pages dict
-        # for indirection_page_range_ID, indirection_page_ID in indirection_pages:
-        #     # if (tail_page_range_ID, tail_page_ID) not in necessary_pages:
-        #     #     necessary_pages[ (tail_page_range_ID, tail_page_ID) ] = self.bufferpool.get_page( tail_page_range_ID, tail_page_ID)
-        #
-        #     indirection_page = necessary_pages[ (indirection_page_range_ID, indirection_page_ID) ]
-        #     for idx in range( indirection_page.num_records ):
-        #         indirection = indirection_page.__getitem__( idx )
-        #
-        #         tail_page_range_IDs, tail_page_IDs, _ = self.page_directory[ indirection ]
-        #         for tail_page_range_ID, tail_page_ID in zip(tail_page_range_IDs, tail_page_IDs):
-        #             if tail_page_range_ID is None: continue
-        #             if tail_page_ID is None: continue
-        #
-        #             if (tail_page_range_ID, tail_page_ID) not in necessary_pages:
-        #                 necessary_pages[ (tail_page_range_ID, tail_page_ID) ] = self.bufferpool.get_page( tail_page_range_ID, tail_page_ID )
 
         return necessary_pages
 
@@ -1047,13 +1016,6 @@ class Table:
             for base_record_idx in range( num_base_records_to_add ):
                 # create consolidated base record
                 current_idx = (page_idx * RECORDS_PER_PAGE) + base_record_idx
-
-                # metadata = [
-                #     base_records[ current_idx ].indirection,
-                #     base_records[ current_idx ].rid,
-                #     base_records[ current_idx ].tps,
-                #     base_records[ current_idx ].schema_encoding
-                # ]
 
                 latest_record = self.get_latest_record( base_records[ current_idx ].rid )
                 consolidated_record_data = latest_record.columns
