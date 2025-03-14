@@ -286,6 +286,10 @@ class Table:
 
         base_schema_encoding = self._convert_int_to_schema_encoding(base_record.schema_encoding)
         schema_encoding = self._get_schema_encoding( columns )
+
+        if len( base_schema_encoding ) != len( schema_encoding):
+            print()
+
         schema_encoding = self._logical_or(base_schema_encoding, schema_encoding)
         schema_encoding_int = self._convert_schema_encoding_to_int( schema_encoding )
 
@@ -418,6 +422,7 @@ class Table:
             return base_record
 
         current_tail_record = self.get_record(base_record.indirection)
+        tmp_record = current_tail_record
 
         columns = current_tail_record.columns
 
@@ -437,10 +442,10 @@ class Table:
         # Fill in all None values with base record values
         latest_tail_record = self._get_cumulative_tail_record_columns(latest_tail_record, base_record)
 
-        latest_tail_record = Record(current_tail_record.rid,
-                                    current_tail_record.indirection,
-                                    current_tail_record.tps,
-                                    current_tail_record.schema_encoding,
+        latest_tail_record = Record(tmp_record.rid,
+                                    tmp_record.indirection,
+                                    tmp_record.tps,
+                                    tmp_record.schema_encoding,
                                     latest_tail_record.columns[ self.key ],
                                     latest_tail_record.columns)
 
@@ -879,6 +884,118 @@ class Table:
                 self.current_base_page = 0
                 self.current_base_page_range += 1
 
+    def _get_local_record( self, necessary_pages, rid ):
+        """
+        Returns Record() object of provided RID
+        """
+        page_range_IDs, page_IDs, offsets = self.page_directory[ rid ]
+
+        # get all values of record from respective pages
+        values = []
+        for page_range_ID, page_ID, offset in zip(page_range_IDs, page_IDs, offsets):
+            if page_range_ID is None or page_ID is None or offset is None:
+                values.append( None )
+                continue
+
+            values.append( necessary_pages[ (page_range_ID, page_ID) ].__getitem__( offset ) )
+
+        record = Record(
+            values[RID_COLUMN],
+            values[INDIRECTION_COLUMN],
+            values[TPS_COLUMN],
+            values[SCHEMA_ENCODING_COLUMN],
+            values[self.key + NUM_META_COLUMNS],
+            values[NUM_META_COLUMNS:]
+        )
+
+        return record
+
+    def _get_records_to_merge( self, base_record_RIDs, necessary_pages ):
+        """
+        Returns list of consolidated records (that are eligible for merge) from locally stored pages in necessary_pages dict
+
+        :param base_record_RIDs: list of all base record RIDs
+        :param necessary_pages: dict of all distinct base and tail pages
+            key: (page_range_ID, page_ID)
+            value: Page() object
+
+        :return: list of consolidated Record() objects
+        """
+        consolidated_records = []
+
+        # get all records that are eligible for merge
+        for base_record_RID in base_record_RIDs:
+            base_record = self._get_local_record( necessary_pages, base_record_RID[0] )
+
+            # if no new updates to record, skip
+            if base_record.tps <= self.max_TPS:
+                continue
+
+            latest_tail_record = self._get_local_record( necessary_pages, base_record.indirection )
+            consolidated_record = Record(
+                base_record.rid,
+                base_record.indirection,
+                base_record.tps,
+                base_record.schema_encoding,
+                latest_tail_record.key,
+                latest_tail_record.columns
+            )
+
+            consolidated_records.append( consolidated_record )
+
+        return consolidated_records
+
+
+
+    def _get_necessary_merge_pages( self, base_record_RIDs ):
+        """
+        Returns a dict of all base pages and necessary tail pages (based off of indirection column)
+
+        :param base_record_RIDs: list of all desired base_records
+
+        :return necessary_pages: dict of all distinct base and tail pages
+            key: (page_range_ID, page_ID)
+            value: Page() object
+        """
+        # store all base pages in memory for fast record retrieval
+        necessary_pages = {}
+        indirection_pages = []
+
+        for base_record_RID in base_record_RIDs:
+            base_page_range_IDs, base_page_IDs, _ = self.page_directory[ base_record_RID[0] ]
+
+            if None in base_page_range_IDs: continue
+            if None in base_page_IDs: continue
+
+            # keep track of all indirection pages
+            if ( base_page_range_IDs[INDIRECTION_COLUMN], base_page_IDs[INDIRECTION_COLUMN] ) not in indirection_pages:
+                indirection_pages.append( (base_page_range_IDs[INDIRECTION_COLUMN], base_page_IDs[INDIRECTION_COLUMN]) )
+
+            # store all old base pages in necessary_pages dict
+            for page_range_ID, page_ID in zip(base_page_range_IDs, base_page_IDs):
+                if (page_range_ID, page_ID) not in necessary_pages:
+                    necessary_pages[(page_range_ID, page_ID)] = self.bufferpool.get_page(page_range_ID, page_ID)
+
+        # add all indirected tail pages to necessary_pages dict
+        for indirection_page_range_ID, indirection_page_ID in indirection_pages:
+            # if (tail_page_range_ID, tail_page_ID) not in necessary_pages:
+            #     necessary_pages[ (tail_page_range_ID, tail_page_ID) ] = self.bufferpool.get_page( tail_page_range_ID, tail_page_ID)
+
+            indirection_page = necessary_pages[ (indirection_page_range_ID, indirection_page_ID) ]
+            for idx in range( indirection_page.num_records ):
+                indirection = indirection_page.__getitem__( idx )
+
+                tail_page_range_IDs, tail_page_IDs, _ = self.page_directory[ indirection ]
+                for tail_page_range_ID, tail_page_ID in zip(tail_page_range_IDs, tail_page_IDs):
+                    if tail_page_range_ID is None: continue
+                    if tail_page_ID is None: continue
+
+                    if (tail_page_range_ID, tail_page_ID) not in necessary_pages:
+                        necessary_pages[ (tail_page_range_ID, tail_page_ID) ] = self.bufferpool.get_page( tail_page_range_ID, tail_page_ID )
+
+        return necessary_pages
+
+
     def __merge(self):
         """
         Merges most recent tail records into their respective base records
@@ -904,10 +1021,18 @@ class Table:
         # with self.lock:
         # base_record_RIDs = self.index.locate_range(0, 906659770, self.key)
         base_record_RIDs = self.index.locate_range(0, sys.maxsize, self.key)
-        base_record_RIDs = sorted( base_record_RIDs, key=lambda x: x[0] )
 
-        num_pages_per_col = int( (len( base_record_RIDs ) + RECORDS_PER_PAGE - 1) / RECORDS_PER_PAGE )
-        num_remaining_base_records = len( base_record_RIDs )
+        # store all base pages in memory for fast record retrieval
+        necessary_pages = self._get_necessary_merge_pages( base_record_RIDs )
+
+        # retrieve all consolidated base records from local necessary_pages dict
+        base_records = self._get_records_to_merge( base_record_RIDs, necessary_pages )
+
+        # base_records = [ base_record for base_record_RID in base_record_RIDs if ( base_record := self.get_record( base_record_RID[0] ) ).tps >= self.max_TPS ]
+        base_records = sorted( base_records, key=lambda x: x.rid )
+
+        num_pages_per_col = int( (len( base_records ) + RECORDS_PER_PAGE - 1) / RECORDS_PER_PAGE )
+        num_remaining_base_records = len( base_records )
         offsets = [ [] for _ in range(self.num_columns + NUM_META_COLUMNS) ]
 
         max_merged_TPS = 0
@@ -920,27 +1045,20 @@ class Table:
             # populate pages with condensed base records
             num_base_records_to_add = min( RECORDS_PER_PAGE, num_remaining_base_records )  # makes sure pages don't overflow
             for base_record_idx in range( num_base_records_to_add ):
-                # get latest record
-                base_rid = base_record_RIDs[ (page_idx * RECORDS_PER_PAGE) + base_record_idx ][ 0 ]
-
                 # create consolidated base record
-                base_record = self.get_record( base_rid )
+                current_idx = (page_idx * RECORDS_PER_PAGE) + base_record_idx
 
                 metadata = [
-                    base_record.indirection,
-                    base_record.rid,
-                    base_record.tps,
-                    base_record.schema_encoding
+                    base_records[ current_idx ].indirection,
+                    base_records[ current_idx ].rid,
+                    base_records[ current_idx ].tps,
+                    base_records[ current_idx ].schema_encoding
                 ]
 
-                # if base record has no updates, don't update columns
-                if base_record.indirection == base_record.rid or base_record.tps <= self.max_TPS:
-                    consolidated_record_data = metadata + base_record.columns
-                else:
-                    latest_record = self.get_latest_record(base_rid)
-                    consolidated_record_data = metadata + latest_record.columns
+                latest_record = self.get_latest_record( base_records[ current_idx ].rid )
+                consolidated_record_data = metadata + latest_record.columns
 
-                max_merged_TPS = max( max_merged_TPS, base_record.tps )
+                max_merged_TPS = max( max_merged_TPS, latest_record.tps )
 
                 # write values to corresponding pages
                 for i, value in enumerate( consolidated_record_data ):
@@ -968,10 +1086,10 @@ class Table:
                 self.bufferpool._write_to_disk( page_range_ids[j], page_ids[j], page )
 
             # update page directory
-            num_base_records_in_page_set = min( RECORDS_PER_PAGE, len( base_record_RIDs ) - (RECORDS_PER_PAGE * i) )
+            num_base_records_in_page_set = min( RECORDS_PER_PAGE, len( base_records ) - (RECORDS_PER_PAGE * i) )
 
             for j in range( num_base_records_in_page_set ):
-                current_base_record_RID = base_record_RIDs[ (RECORDS_PER_PAGE*i) + j ][0]
+                current_base_record_RID = base_records[ (RECORDS_PER_PAGE*i) + j ].rid
                 self.page_directory[ current_base_record_RID ] = ( page_range_ids, page_ids, [j] * len(page_ids) )
 
                 final_offset = num_base_records_in_page_set
@@ -1051,3 +1169,4 @@ class Table:
 
     #     # Remove the entry from the page directory
     #     self.page_directory.pop(base_rid, None)
+
