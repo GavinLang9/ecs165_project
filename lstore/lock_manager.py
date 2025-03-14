@@ -18,7 +18,7 @@ class LockManager:
         self.transaction_locks = defaultdict(list)
         self.waiting_for = defaultdict(set) 
 
-    def acquire_lock(self, transaction_id, table_id, key, lock_type, timeout=1):
+    def acquire_lock(self, transaction_id, table_id, key, lock_type, timeout=100):
         """
         tries to acquire a lock
         """
