@@ -9,11 +9,13 @@ class Database():
     def __init__(self):
         self.tables: list[Table] = []
         self.path = ""
+        self.opened = False
         pass
 
     def open(self, path):
         self.path = path
-        
+        self.opened = True
+
         if not os.path.exists(path):
             os.makedirs(path)
             disk_dir = os.path.join(self.path, DISK_DIRECTORY_PATH)
@@ -69,10 +71,16 @@ class Database():
     :param key: int             #Index of table key in columns
     """
     def create_table(self, name, num_columns, key_index):
+        if not self.opened:
+            default_path = "./default_path"  # Choose a reasonable default
+            self.open(default_path)  # Open with a default path if not explicitly opened
+
+
         table = Table(name, num_columns, key_index, self.path)
         # table.path = self.path
         # table.bufferpool.path = os.path.join(self.path, DISK_DIRECTORY_PATH)
         self.tables.append(table)
+        
         return table
 
     
