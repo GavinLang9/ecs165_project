@@ -11,7 +11,7 @@ from lstore.config import *
 import struct
 import threading
 
-MERGE_FREQUENCY = RECORDS_PER_PAGE  # runs __merge() every x record updates
+MERGE_FREQUENCY = RECORDS_PER_PAGE * 3  # runs __merge() every x record updates
 
 class Record:
     def __init__(self, rid, indirection, tps, schema_encoding, key, columns):
@@ -67,6 +67,7 @@ class Table:
 
         self.latest_page_range = 0
         self.latest_page = 0
+
         pass
 
     def serialize(self):
@@ -983,14 +984,14 @@ class Table:
             To change merge frequency, update MERGE_FREQUENCY variable
         """
 
-        print("Merge is happening...")
+        #print("Merge is happening...")
 
         # NOTE: merge function currently occurs every 15 updates
         # TODO : get lock (?)
         # with self.lock:
         # base_record_RIDs = self.index.locate_range(0, 906659770, self.key)
         base_record_RIDs = self.index.locate_range(0, sys.maxsize, self.key)
-
+  
         # store all base pages in memory for fast record retrieval
         necessary_pages = self._get_necessary_merge_pages( base_record_RIDs )
 
@@ -1027,6 +1028,8 @@ class Table:
                     index = consolidated_base_page_set[i].write( value )
                     offsets[i].append( index )
 
+            if num_remaining_base_records % RECORDS_PER_PAGE:
+                raise ValueError("REMAINING RECORDS")
             num_remaining_base_records -= min( RECORDS_PER_PAGE, num_remaining_base_records )
 
             consolidated_base_pages.append( consolidated_base_page_set )
@@ -1062,12 +1065,17 @@ class Table:
 
                 self.page_directory[ current_base_record_RID ] = ( new_page_range_ids, new_page_ids, new_offsets )
 
-                final_offset = num_base_records_in_page_set
+            final_offset = num_base_records_in_page_set
 
         self._update_base_counters_post_merge( page_range_ids, page_ids, final_offset )
         self.max_TPS = max_merged_TPS
 
             # TODO : Get bufferpool lock (?)
+
+    def transaction_get_record( self, key ):
+        rid = self.index.locate(self.key, key)
+        record = self.get_latest_record(rid[0])
+        return record.columns
 
     # Might not be necessary - just delete rid from Index
 

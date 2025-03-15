@@ -58,20 +58,20 @@ class LockManager:
             wait_event.wait(timeout=0.01)
             wait_event.clear()
     
-    def _can_acquire_lock(self, transaction_id, table_id, record_id, lock_type):
+    def _can_acquire_lock(self, transaction_id, table_id, key, lock_type):
         """
         Checks if a lock can be acquired based on existing locks.
         """
-        if record_id == -1:
+        if key == -1:
             if table_id not in self.locks or -1 not in self.locks[table_id]:
                 return True
             record_locks = self.locks[table_id][-1]
             return len(record_locks) == 0 or (len(record_locks) == 1 and transaction_id in record_locks)
         
-        if table_id not in self.locks or record_id not in self.locks[table_id]:
+        if table_id not in self.locks or key not in self.locks[table_id]:
             return True
         
-        record_locks = self.locks[table_id][record_id]
+        record_locks = self.locks[table_id][key]
         
         if transaction_id in record_locks:
             current_lock = record_locks[transaction_id]
@@ -79,26 +79,24 @@ class LockManager:
                 return len(record_locks) == 1 
             return True 
         
-        # when requesting shared make sure no other transactions hold exclusive locks
         if lock_type == LockType.SHARED:
             return not any(lt == LockType.EXCLUSIVE for tid, lt in record_locks.items())
         
         # requesting exclusive lock
         return len(record_locks) == 0
     
-    def _update_waiting_for(self, transaction_id, table_id, record_id):
+    def _update_waiting_for(self, transaction_id, table_id, key):
         """
-        Updates the waiting_for data structure for deadlock detection.
+        update graph
         """
-        if table_id in self.locks and record_id in self.locks[table_id]:
-            # This transaction is waiting for all transactions that hold locks on this record
-            for tid in self.locks[table_id][record_id]:
+        if table_id in self.locks and key in self.locks[table_id]:
+            for tid in self.locks[table_id][key]:
                 if tid != transaction_id:
                     self.waiting_for[transaction_id].add(tid)
     
     def _detect_deadlock(self, transaction_id, visited=None):
         """
-        Detects deadlocks using cycle detection in wait-for graph.
+        BFS
         """
         if visited is None:
             visited = set()
